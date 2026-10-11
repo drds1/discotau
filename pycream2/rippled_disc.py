@@ -209,7 +209,12 @@ def response_elements(log_mdot, wavelength, inclination, M_BH, n_phi: int = 180,
     # dB/dT T**-3 (up to constants), as in thin_disk_response; times dT/dL, which is
     # the lamppost's flux per unit surface area over T**3 (the T**-3 is already in
     # the first factor), zero in shadow.
-    planck_deriv = X ** 5 * emX / (1.0 - emX) ** 2
+    # X**5 e**-X / (1 - e**-X)**2 as X**3 q**2 e**-X with q = X / (1 - e**-X):
+    # the direct form is 0/0 in float32 for a disc much hotter than the band.
+    small = X < 1e-6
+    Xs = jnp.where(small, 1.0, X)
+    q = jnp.where(small, 1.0 + 0.5 * X, Xs / -jnp.expm1(-Xs))
+    planck_deriv = X ** 3 * q ** 2 * emX
     radial = planck_deriv * irr * r * dr  # r dr: the area element (projection below)
     # The responding disc starts at the viscous temperature peak, 1.36 r_in, as in
     # thin_disk_response (CLAUDE.md decision #22): inside it the zero-torque

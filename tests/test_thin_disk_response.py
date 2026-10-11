@@ -347,3 +347,22 @@ def test_default_response_has_no_inner_edge_spike(wavelength):
         thin_disk_response(tau_grid, 2.44, wavelength, 0.0, M, include_irradiation=False)))]
     assert peak_viscous < 1.3 * edge
     assert peak > 2.0 * edge
+
+
+@pytest.mark.parametrize("log_mdot, slope", [(22.84, 2.3), (22.84, 0.7), (25.0, 0.5), (40.0, 0.75), (-25.0, 0.5)])
+def test_thin_disk_response_is_finite_far_out_in_the_prior(log_mdot, slope):
+    # The nested solve's grids reach log_mdot ~ 23 and beyond (prior sd 5). There
+    # the disc is far hotter than the band: 1 - e**-X rounded to zero in float32
+    # (a 0/0 Planck weight), r_wien**3 and 10**log_mdot overflowed, and the
+    # potential or its gradient came out NaN, stopping three temperature-slope
+    # fits with "Eigenvalues did not converge".
+    tau_grid = jnp.concatenate([jnp.zeros(1), jnp.geomspace(0.01, 30.0, 199)])
+
+    def loss(p):
+        psi = thin_disk_response(tau_grid, p[0], 7625.0, p[1], 1e8, viscous_slope=p[2])
+        return jnp.sum(psi ** 2), psi
+
+    (value, psi), grad = jax.value_and_grad(loss, has_aux=True)(jnp.array([log_mdot, 68.0, slope]))
+    assert np.isfinite(float(value)) and np.all(np.isfinite(np.asarray(grad)))
+    assert np.all(np.asarray(psi) >= 0.0)
+    assert np.isfinite(float(lag_scaling(40.0, 5000.0, 1e8)))

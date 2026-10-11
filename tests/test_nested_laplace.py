@@ -6,8 +6,10 @@ end-to-end on a small EchoFit problem."""
 import warnings
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import numpyro
+import pytest
 import numpyro.distributions as dist
 from numpyro.infer.util import initialize_model
 
@@ -156,3 +158,48 @@ def test_optimise_rejects_an_unknown_method():
     ef = EchoFit(M_BH=1.0e8)
     with pytest.raises(ValueError, match="nested_laplace"):
         ef.optimise(method="nonsense")
+
+
+def _toy_with_nan_gradient(y_b):
+    # A term that is zero everywhere but whose gradient is NaN for
+    # s < -2.5 (jnp.where's unselected branch, sqrt of a negative number): the
+    # kind of float32 trap the thin-disc response had at extreme log_mdot, which
+    # made a finite-difference Hessian NaN and stopped whole fits with LAPACK's
+    # "Eigenvalues did not converge".
+    s = numpyro.sample("s", dist.Normal(0.0, 1.0))  # gridded
+    b = numpyro.sample("b", dist.Normal(0.0, 2.0))
+    c = numpyro.sample("c", dist.HalfNormal(2.0))
+    numpyro.sample("obs_b", dist.Normal(b + 0.15 * s, c), obs=y_b)
+    # NaN in the gradient with respect to b, an inner parameter, as the thin-disc
+    # NaN was with respect to sigma_drw and the gains.
+    numpyro.factor("trap", jnp.where(s < -2.5, 0.0, 0.0 * b * jnp.sqrt(s + 2.5)))
+
+
+def test_fd_hessian_raises_a_clear_error_on_a_non_finite_gradient():
+    with pytest.raises(nested_laplace.NonFiniteHessianError):
+        nested_laplace.fd_hessian(lambda z: np.array([z[0], np.nan]), np.zeros(2))
+
+
+def test_nested_laplace_survives_grid_points_with_a_non_finite_gradient(monkeypatch):
+    # LAPACK's response to a NaN matrix depends on the build: Linux's (Kaggle)
+    # raises "Eigenvalues did not converge", macOS's can return NaNs silently.
+    # Raise everywhere, so no NaN may reach an eigen-decomposition.
+    eigh = np.linalg.eigh
+
+    def strict_eigh(a, *args, **kw):
+        if not np.all(np.isfinite(a)):
+            raise np.linalg.LinAlgError("Eigenvalues did not converge")
+        return eigh(a, *args, **kw)
+
+    monkeypatch.setattr(np.linalg, "eigh", strict_eigh)
+    kwargs = dict(y_b=Y_B)
+    info = initialize_model(jax.random.PRNGKey(0), _toy_with_nan_gradient, model_kwargs=kwargs)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = nested_laplace.run(_toy_with_nan_gradient, kwargs, info, num_samples=1000, rng_seed=1,
+                                    grid_params=("s",))
+    a_index = int(result["unravel"](np.arange(result["z"].shape[1], dtype=np.float32))["s"])
+    draws = result["z"][:, a_index]
+    assert np.all(np.isfinite(draws))
+    # s's posterior is nearly its N(0, 1) prior; the points beyond -2.5 hold ~0.6 per cent of it.
+    assert abs(np.mean(draws)) < 0.2 and 0.8 < np.std(draws) < 1.2

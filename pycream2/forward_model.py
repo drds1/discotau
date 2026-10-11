@@ -89,11 +89,12 @@ def lag_scaling(log_mdot, wavelength, M_BH):
     tau_mean : array_like
         Mean lag in days, same broadcast shape as (log_mdot, wavelength).
     """
-    mdot = 10.0 ** log_mdot
+    # (10**log_mdot)**(1/3) taken as 10**(log_mdot/3): the first overflowed
+    # float32 for log_mdot above ~38.
     tau_mean = (
         TAU0_DAYS
         * (M_BH / M_BH_PIVOT) ** (2.0 / 3.0)
-        * (mdot / MDOT_PIVOT) ** (1.0 / 3.0)
+        * 10.0 ** (log_mdot / 3.0) / MDOT_PIVOT ** (1.0 / 3.0)
         * (wavelength / LAMBDA_PIVOT) ** (4.0 / 3.0)
     )
     return tau_mean
@@ -643,8 +644,25 @@ def thin_disk_response(
     A = tau_pos - hd * cosinc
     disc = A ** 2 - hd ** 2 * one_m_s2
     sq = jnp.sqrt(jnp.where(disc > 0.0, disc, 1.0))
-    t1_kelvin = disk_t1_kelvin(log_mdot, M_BH)
+    # The temperature and the response weight are built in logs: at extreme
+    # log_mdot (or slope 0.5, where r_wien grows as T_1**2) r_wien**3 and T
+    # overflowed float32, and the hot-disc Planck term underflowed, giving a NaN
+    # potential or gradient at grid points the nested solve visits (log_mdot ~ 23
+    # on CREAM-like data). Analytically the response is unchanged.
+    log_t1 = jnp.log(disk_t1_kelvin(log_mdot, M_BH))
+    log_rw = (log_t1 + jnp.log(wavelength / _WIEN_B_ANGSTROM_KELVIN)) / viscous_slope  # ln r_wien
+    log_x_ref = 0.5 * jnp.logaddexp(2.0 * log_rw, 2.0 * jnp.log(hx))
+    log_hc_k_lambda = jnp.log(_HC_OVER_K_ANGSTROM / wavelength)
+    log_w_irad = jnp.log(jnp.clip(irradiation_weight, 1e-30, None))
+    log_w_visc = jnp.log(jnp.clip(1.0 - irradiation_weight, 1e-30, None))
     r_peak = r_in * ((4.0 * viscous_slope + 0.5) / (4.0 * viscous_slope)) ** 2
+
+    def log_t4_visc_shape(log_r):
+        # ln of _viscous_t4_shape. The double jnp.where keeps the gradient finite
+        # where the zero-torque factor vanishes (r at or inside r_in).
+        edge = 1.0 - jnp.exp(0.5 * (jnp.log(r_in) - log_r))
+        ok = edge > 1e-30
+        return -4.0 * viscous_slope * log_r + jnp.where(ok, jnp.log(jnp.where(ok, edge, 1.0)), -69.0)
 
     def contribution(r_root):
         valid = (disc > 0.0) & (r_root > 0.0) & (A - s_phi * r_root > 0.0)
@@ -655,32 +673,36 @@ def thin_disk_response(
         # overflowed float32 there, and the overflow times the clamp's zero
         # gradient made every inclination gradient NaN.
         r_safe = jnp.where(r_root > r_in, r_root, r_in)
-        # T**4(r) / T_1**4 -- shared with disk_temperature_profile, see
-        # _viscous_t4_shape.
-        t4_visc = _viscous_t4_shape(r_safe, r_in, viscous_slope)
-        d_safe = jnp.sqrt(r_safe ** 2 + hx ** 2)
+        # ln(T**4(r) / T_1**4), the formula of _viscous_t4_shape (shared with
+        # disk_temperature_profile), in logs.
+        log_r = jnp.log(r_safe)
+        log_t4_visc = log_t4_visc_shape(log_r)
+        log_d = 0.5 * jnp.log(r_safe ** 2 + hx ** 2)
         if include_irradiation:
             # Irradiation's share of T**4 is irradiation_weight at the Wien radius.
-            x_ref = jnp.sqrt(r_wien ** 2 + hx ** 2)
-            t4_irad = (x_ref / d_safe) ** 3 * _viscous_t4_shape(r_wien, r_in, viscous_slope)
-            t4_shape = irradiation_weight * t4_irad + (1.0 - irradiation_weight) * t4_visc
+            log_t4_irad = 3.0 * (log_x_ref - log_d) + log_t4_visc_shape(log_rw)
+            log_t4 = jnp.logaddexp(log_w_irad + log_t4_irad, log_w_visc + log_t4_visc)
         else:
-            t4_shape = t4_visc
-        # Only take the fourth root where the disk is actually warm (the double
-        # jnp.where keeps every derivative finite): clipping T**4 at a tiny floor
-        # and rooting it overflowed float32 in the second derivative with respect
-        # to viscous_slope (x**0.25's curvature at 1e-30), and the clip's zero
-        # gradient times that overflow made the Hessian NaN. Cold points get
-        # X = 50, i.e. no response.
-        warm = t4_shape > 1e-20
-        T = t1_kelvin * jnp.where(warm, t4_shape, 1.0) ** 0.25
-        X = jnp.where(warm, jnp.clip(_HC_OVER_K_ANGSTROM / (wavelength * T), None, 50.0), 50.0)
-        emX = jnp.exp(-X)
+            log_t4 = log_t4_visc
+        # Only points where the disk is actually warm respond (the double
+        # jnp.where keeps every derivative finite, see the history below). Cold
+        # points get X = 50, i.e. no response. Before October 2026 this took the
+        # fourth root of a T**4 clipped at a floor, which overflowed float32 in
+        # the second derivative with respect to viscous_slope.
+        warm = log_t4 > -46.0  # T**4 / T_1**4 > 1e-20
+        log_X = jnp.where(warm, jnp.clip(log_hc_k_lambda - log_t1 - 0.25 * jnp.where(warm, log_t4, 0.0),
+                                         None, jnp.log(50.0)), jnp.log(50.0))
+        X = jnp.exp(log_X)
         # dB/dT * dT/dL_x: X**2 e**X/(e**X-1)**2 from the Planck derivative, X**3
-        # (i.e. T**-3) and h_x/d**3 from d(T**4) ~ dL_x h_x/d**3. Written as
-        # (r_wien/d)**3, the same up to a constant, to keep float32 well scaled.
-        planck_deriv = X ** 5 * emX / (1.0 - emX) ** 2  # e^-X form cannot overflow
-        dilution = (r_wien / d_safe) ** 3
+        # (i.e. T**-3) and h_x/d**3 from d(T**4) ~ dL_x h_x/d**3, the latter as
+        # (r_wien/d)**3, the same up to a constant. In logs, with
+        # X**5 e**X/(e**X-1)**2 = X**3 q**2 e**-X and q = X / (1 - e**-X) -> 1 as
+        # X -> 0 (expm1, and its series where X itself underflows): the direct
+        # form was 0/0 for a disc much hotter than the band.
+        small = X < 1e-6
+        Xs = jnp.where(small, 1.0, X)
+        log_q = jnp.where(small, 0.5 * X, jnp.log(Xs / -jnp.expm1(-Xs)))
+        log_weight = 3.0 * log_X + 2.0 * log_q - X + 3.0 * (log_rw - log_d)
         # Only the disk outside its temperature peak responds: a smooth (not
         # hard) cutoff, since the root depends on inclination, a sampled
         # parameter, and a hard jnp.where here would have the same
@@ -700,11 +722,16 @@ def thin_disk_response(
         # keeps the quadrature finite there.
         d_delay = jnp.sqrt(r_root ** 2 + hd ** 2)
         jac = jnp.clip(jnp.abs(r_root / jnp.clip(d_delay, 1e-12, None) + s_phi), 1e-3, None)
-        return jnp.where(valid, planck_deriv * dilution * mask * r_root / jac, 0.0)
+        return jnp.where(valid, log_weight, -jnp.inf), jnp.where(valid, mask * r_root / jac, 0.0)
 
     r_plus = (-A * s_phi + sq) / one_m_s2
     r_minus = (-A * s_phi - sq) / one_m_s2
-    raw = jnp.sum(contribution(r_plus) + contribution(r_minus), axis=1) * dphi
+    (lw_p, f_p), (lw_m, f_m) = contribution(r_plus), contribution(r_minus)
+    # A constant offset keeps the weights in float32 range; it cancels in the
+    # area normalisation, so it is held out of the gradient.
+    offset = jnp.max(jnp.maximum(lw_p, lw_m))
+    offset = jax.lax.stop_gradient(jnp.where(jnp.isfinite(offset), offset, 0.0))
+    raw = jnp.sum(jnp.exp(lw_p - offset) * f_p + jnp.exp(lw_m - offset) * f_m, axis=1) * dphi
     raw = jnp.where(tau_grid >= 0.0, raw, 0.0)
     return _smooth_response(raw, tau_grid, r_wien, smoothing_frac, smoothing_days, smoothing_log)
 
