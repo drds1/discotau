@@ -1271,6 +1271,28 @@ match; `pycream2.__version__` reads the installed metadata);
       `test_thin_disk_response_smoothing_days_zero_gives_exact_mean_lag_independence` now holds 0-40 degrees
       to 0.1% and 0-80 to 2%. Gains: case A single Gaussian ~20 -> 14 s, NGC 5548 46 -> 36 s, nested 143 -> 91 s.
 
+31. **The thin-disc response is computed in logs, finite over the whole prior, and the nested solve drops a
+    grid point whose Hessian is not finite (October 2026, from three temperature-slope fits that stopped
+    with LAPACK's "Eigenvalues did not converge", `experiments/temperature_slope/`).** The nested solve's
+    grids reach `log_mdot` ~ 23 (prior sd 5). There the disc is far hotter than the band: `1 - e**-X`
+    rounded to zero in float32 (a 0/0 Planck weight), `r_wien**3` overflowed (soonest at slope 0.5, where
+    `r_wien` grows as `T_1**2`), and `lag_scaling`'s `10**log_mdot` overflowed above ~38. The potential
+    stayed finite but its gradient was NaN, so the finite-difference inner Hessian was NaN, and Linux's
+    LAPACK raises on that (macOS's can return NaNs silently, which is why it never showed locally).
+    - `thin_disk_response` now builds `ln T**4`, `ln X` and the log weight, `3 ln X + 2 ln q - X +
+      3 ln(r_wien/d)` with `q = X / (1 - e**-X)` (expm1, and its series where X underflows), and removes a
+      `stop_gradient` constant offset before exponentiating (it cancels in the area normalisation).
+      Finite value and gradient from `log_mdot` -25 to 40, slopes 0.5-2.5, all inclinations, 1000-20000 A,
+      with and without irradiation (it was NaN at 1087 of 4050 such points). Where `r_wien` is outside
+      twice the ISCO, psi matches the old code to 7e-6 and its Jacobian to 2e-4 (float32 rounding). Where
+      `r_wien` is inside the ISCO (the band's Wien temperature reached nowhere on the disc) the old code
+      underflowed or took a negative irradiation term from the zero-torque factor, and results differ;
+      both are degenerate, prior-tail responses. `rippled_disc.py` has the same `q` form.
+    - `fd_hessian` and `_Problem.hessian` raise `NonFiniteHessianError` instead of passing NaNs on;
+      `_solve_point` treats it like a non-finite potential (the point is left unsolved, no mass) and the
+      mode search skips such a mode (`timings["modes_skipped_nonfinite"]`). The test patches `eigh` to
+      raise on non-finite input, as Linux's LAPACK does, so it catches a regression on any platform.
+
 ## Known rough edges / things to check before trusting results on real data
 
 - `synthetic.py`'s ground truth is generated with the *same* forward model

@@ -88,6 +88,18 @@ def lbfgs_sd(result) -> np.ndarray:
         return np.ones(np.size(result.x))
 
 
+class NonFiniteHessianError(FloatingPointError):
+    """A finite-difference Hessian met a non-finite gradient. Raised instead of
+    passing NaNs on to an eigen-decomposition, whose failure ("Eigenvalues did
+    not converge" in LAPACK) aborted whole fits."""
+
+
+def _check_finite(h, where):
+    if not np.all(np.isfinite(h)):
+        raise NonFiniteHessianError(f"non-finite gradient in the finite-difference Hessian ({where})")
+    return h
+
+
 def fd_hessian(grad, z, sd=None, basis=None, frac: float = 0.1):
     """Hessian by central differences of a (compiled) gradient, with nothing
     new to compile (``jax.hessian`` of the marginal potential took ~25 s to
@@ -111,7 +123,7 @@ def fd_hessian(grad, z, sd=None, basis=None, frac: float = 0.1):
     def along(directions, steps):
         cols = [(np.asarray(grad(z + s * v), dtype=np.float64) - np.asarray(grad(z - s * v), dtype=np.float64))
                 / (2 * s) for v, s in zip(directions.T, steps)]
-        return np.stack(cols, axis=1)  # column k: H @ direction_k
+        return _check_finite(np.stack(cols, axis=1), "fd_hessian")  # column k: H @ direction_k
 
     if basis is None:
         steps = np.clip(frac * np.asarray(sd if sd is not None else np.ones(d), dtype=np.float64), 1e-5, 1.0)
@@ -235,7 +247,7 @@ class _Problem:
                 e = np.zeros(z.size)
                 e[self.inner] = s * v
                 cols.append((self.full_grad(z + e) - self.full_grad(z - e)) / (2 * s))
-            a = np.stack(cols, axis=1)  # H[:, inner] @ vecs
+            a = _check_finite(np.stack(cols, axis=1), "inner Hessian")  # H[:, inner] @ vecs
             h_rr = a[self.inner] @ vecs.T
             h_rr = 0.5 * (h_rr + h_rr.T)
             h_or = a[self.outer] @ vecs.T
@@ -288,16 +300,25 @@ def _solve_point(prob, theta, zr_start, h_rr, exact_hessian, rough=False):
     # the neighbours' references) are converged harder.
     tol, max_iter = (0.1, 8) if rough else ((1e-2, 30) if exact_hessian else (0.05, 30))
     zr, f, ok = _inner_solve(prob, np.asarray(zr_start, dtype=np.float64), zo, h_rr, tol=tol, max_iter=max_iter)
+    # A gradient that is not finite near the point (an overflow in the model far
+    # out in the prior, say) leaves the point unsolved, like a non-finite
+    # potential, rather than stopping the whole fit.
     if not ok and np.isfinite(f) and not rough:
         # A stale Hessian can stall; retry once with the exact one here.
-        h_rr = prob.hessian(zr, zo, h_rr)[0]
+        try:
+            h_rr = prob.hessian(zr, zo, h_rr)[0]
+        except NonFiniteHessianError:
+            return None
         zr, f, ok = _inner_solve(prob, zr, zo, h_rr)
     if not np.isfinite(f):
         return None
     out = dict(theta=np.asarray(theta, dtype=np.float64), zo=zo, zr=zr, U=f, converged=ok,
                log_jac=prob.log_jacobian(zo, theta), h_used=h_rr)
     if exact_hessian:
-        h_rr, h_ro = prob.hessian(zr, zo, h_rr)
+        try:
+            h_rr, h_ro = prob.hessian(zr, zo, h_rr)
+        except NonFiniteHessianError:
+            return None
         h_reg, indefinite = _saddle_free(h_rr)
         out.update(h_rr=h_reg, h_ro=h_ro, logdet=float(np.linalg.slogdet(h_reg)[1]), indefinite=indefinite)
     return out
@@ -523,7 +544,11 @@ def run(model, kwargs, info, num_samples: int = 1000, rng_seed: int = 0,
         m = minimize(objective, zs, jac=True, method="L-BFGS-B", options=dict(ftol=1e-7, gtol=1e-3, maxiter=1000))
         if not np.isfinite(m.fun) or m.fun >= 1e9:
             continue
-        m.x, m.fun, h = _polish(prob, objective, m.x, sd=lbfgs_sd(m))
+        try:
+            m.x, m.fun, h = _polish(prob, objective, m.x, sd=lbfgs_sd(m))
+        except NonFiniteHessianError:
+            timings["modes_skipped_nonfinite"] = timings.get("modes_skipped_nonfinite", 0) + 1
+            continue
         vals, vecs = np.linalg.eigh(h)
         if vals.min() <= 0:
             vals = np.clip(np.abs(vals), 1e-8, None)
