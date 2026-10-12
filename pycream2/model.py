@@ -467,6 +467,16 @@ def reverberation_model(
     # scalar directly -- no need to (and, when traced, can't) concretise it.
     tau_max = tau_grid[-1]
 
+    # Every physical band's response in one call (_call_responses): the
+    # thin-disc response's delay geometry is shared, only its temperature and
+    # Planck weight depend on wavelength.
+    physical = [name for name, d in bands.items() if d["lag_mode"] == "physical"]
+    psi_physical = {}
+    if physical:
+        psi_physical = dict(zip(physical, _call_responses(
+            response_function, tau_grid, log_mdot, [bands[n]["wavelength"] for n in physical], inclination, M_BH,
+            **slope_kwargs)))
+
     # -- per-band amplitude / offset + likelihood ------------------------
     for band_name, d in bands.items():
         S_band = _param(f"S_{band_name}", dist.LogNormal(_gain_prior_loc(d["y"], sigma_drw_prior_scale), 1.0))
@@ -476,8 +486,7 @@ def reverberation_model(
             C_band = _param(f"C_{band_name}", dist.Normal(offset_loc, offset_sd))
 
         if d["lag_mode"] == "physical":
-            psi = _call_response(response_function, tau_grid, log_mdot, d["wavelength"], inclination, M_BH,
-                                 **slope_kwargs)
+            psi = psi_physical[band_name]
         else:
             tau_band = _param(f"tau_{band_name}", dist.Uniform(0.0, tau_max))
             psi = tophat_response_free(tau_grid, tau_mean=tau_band)
@@ -669,6 +678,33 @@ def _call_response(fn, tau_grid, log_mdot, wavelength, inclination, M_BH, **kwar
                 jax.errors.TracerBoolConversionError, TypeError):
             _RESPONSE_JIT[key] = False
     return fn(tau_grid, log_mdot=log_mdot, wavelength=wavelength, inclination=inclination, M_BH=M_BH, **kwargs)
+
+
+def _call_responses(fn, tau_grid, log_mdot, wavelengths, inclination, M_BH, **kwargs):
+    """Every band's response at once: ``fn`` mapped over ``wavelengths`` with
+    ``jax.vmap``, through one ``jax.jit`` per response function, ``M_BH`` and
+    keyword set (see :func:`_call_response`). ``vmap`` batches only what depends
+    on the wavelength, so the thin-disc response's delay roots, masks and
+    Jacobians are computed once for all bands: ~2.8x faster than one call per
+    band for 8 bands (value and gradient), the same as a hand-batched version
+    of ``thin_disk_response`` that was tried and dropped. Returns one response
+    per wavelength. A response that can't be mapped over a traced wavelength
+    is called band by band from then on."""
+    key = ("bands", fn, M_BH, tuple(sorted(kwargs)))
+    jitted = _RESPONSE_JIT.get(key)
+    if jitted is None:
+        def all_bands(tau, lm, wls, inc, **kw):
+            return jax.vmap(lambda wl: fn(tau, log_mdot=lm, wavelength=wl, inclination=inc, M_BH=M_BH, **kw))(wls)
+
+        jitted = _RESPONSE_JIT[key] = jax.jit(all_bands)
+    if jitted is not False:
+        try:
+            psis = jitted(tau_grid, log_mdot, jnp.asarray(wavelengths, dtype=jnp.float32), inclination, **kwargs)
+            return [psis[k] for k in range(len(wavelengths))]
+        except (jax.errors.ConcretizationTypeError, jax.errors.TracerArrayConversionError,
+                jax.errors.TracerBoolConversionError, TypeError, ValueError):
+            _RESPONSE_JIT[key] = False
+    return [_call_response(fn, tau_grid, log_mdot, wl, inclination, M_BH, **kwargs) for wl in wavelengths]
 
 
 def _linear_marginal(blocks, prior_scale, draw_linear):

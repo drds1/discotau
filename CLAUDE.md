@@ -1293,6 +1293,19 @@ match; `pycream2.__version__` reads the installed metadata);
       mode search skips such a mode (`timings["modes_skipped_nonfinite"]`). The test patches `eigh` to
       raise on non-finite input, as Linux's LAPACK does, so it catches a regression on any platform.
 
+32. **Every physical band's response comes from one `jax.vmap`'d call (`model._call_responses`, October
+    2026, agreed as the next speed-up after the temperature-slope study).** The thin-disc response and its
+    gradient were most of each gradient's cost, paid once per band. `vmap` over the bands' wavelengths batches
+    only what depends on the wavelength, so the delay roots, masks and Jacobians are computed once for all
+    bands. **A hand-batched `thin_disk_response` (wavelength arrays, shared geometry written out) was tried
+    first and was no faster than plain `vmap`** (16 ms against 16 ms for 8 bands, value and gradient; 45 ms
+    one band at a time), so it was dropped: `vmap` keeps the swap contract (decision #5) and works for any JAX
+    response. One that can't be mapped over a traced wavelength (numpy work on its arguments) falls back to
+    per-band calls (tested). Measured: marginal potential plus gradient 18-20 -> 14 ms (2 bands), 40-55 ->
+    29-31 ms (5), 63-65 -> 33-38 ms (8) on the laptop; whole nested fits on Kaggle 1063 -> 577 s (uvugriz,
+    SNR 300) and 1784 -> 1243 s (ugriz, SNR 1000), posteriors within Monte Carlo noise and log evidence equal
+    to 0.01. The potential differs by ~1e-5 relative (float32 operation order).
+
 ## Known rough edges / things to check before trusting results on real data
 
 - `synthetic.py`'s ground truth is generated with the *same* forward model
