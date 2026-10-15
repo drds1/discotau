@@ -314,6 +314,7 @@ docs/
     releasing.md          how to bump the version and publish a release to PyPI
 notebooks/
     demo.ipynb            end-to-end synthetic-data demo
+    quickstart.ipynb      a complete disc fit in about three minutes (runs on Colab)
 scripts/
     smoke_test.py          quick visual sanity check (see below)
     profile_pipeline.py    one-off performance profile, split into one-off
