@@ -1325,7 +1325,11 @@ match; `discotau.__version__` reads the installed metadata);
     against the host's starlight, its inner face glowing as hot dust with a fixed 17-day delay) and a faint host
     glow, viewed at 58 degrees as a type 1 AGN. These are illustrative and not to scale. The torus only reads
     if its lit inner face is strong and the host light dim; bright host light filled the hole and flattened
-    the contrast. It is published as an animated WebP (`docs/images/echo_animation.webp`, ~3 MB),
+    the contrast. A third request made the disc the centrepiece ("the accretion disc is the
+    centre piece of this code so it should be prominent"). The view is zoomed in (`SCENE_SCALE_LD`), with the
+    clouds and torus pulled inward to frame the disc. The lamppost's heating is stronger relative to the
+    viscous (`IRRADIATION_REF`), and the disc shows its variation exaggerated (`IRRADIATION_CONTRAST`), so the
+    heating ripples are visible as arcs crossing the disc. It is published as an animated WebP (`docs/images/echo_animation.webp`, ~3 MB),
     a third of an equivalent GIF's size. A GIF needs its palette built from many frames (a single frame's
     palette turned the violet UV line crimson and banded the disc's core). `make_fit_animation.py` and its GIF
     stay as they were.

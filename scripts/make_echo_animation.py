@@ -33,8 +33,9 @@ light curve smeared and delayed by that band's response function.
 
 No code name is drawn into the frames, so a rename doesn't need a new render.
 
-The physics is the code's; only the variability amplitude is exaggerated, so
-that the ripples are visible. No fitting is done.
+The physics is the code's; only the variability amplitude is exaggerated (in
+the light curves, and further on the disc, IRRADIATION_CONTRAST), so that the
+ripples are visible. No fitting is done.
 
 Usage (from the repository root; a few minutes, no fitting):
     python scripts/make_echo_animation.py                      # docs/images/echo_animation.webp
@@ -68,19 +69,20 @@ INCLINATION = 58.0  # degrees
 RS_LD = 2 * 6.674e-8 * M_BH * 1.989e33 / 2.998e10 ** 2 / (2.998e10 * 86400)  # Schwarzschild radius, light-days
 R_IN, H_LAMP = 3 * RS_LD, 3 * RS_LD  # inner edge and lamppost height, light-days
 R_OUT = 7.0  # light-days, edge of the drawn disc
-IRRADIATION_REF = 1.0  # light-days: the lamppost's mean heating equals the viscous at this radius
+IRRADIATION_REF = 2.0  # light-days: the lamppost's mean heating equals the viscous at this radius
+IRRADIATION_CONTRAST = 2.0  # display exaggeration of the heating's variation: L -> L**IRRADIATION_CONTRAST on the disc
 # The surroundings (light-days; not to scale).
-BLR_R = (7.5, 12.0)  # broad-line-region clouds: radial range
-BLR_N = 420
+BLR_R = (7.3, 10.0)  # broad-line-region clouds: radial range
+BLR_N = 300
 BLR_THICKNESS = 0.3  # rms height / radius
 BLR_PERIOD_10 = 300.0  # days: orbital period at 10 light-days (Keplerian elsewhere; sped up for display)
 BLR_COLOUR = np.array([1.0, 0.42, 0.62])  # Balmer pink
-TORUS_R, TORUS_A = 15.0, 3.4  # torus: radius of the tube's centre and the tube's radius
+TORUS_R, TORUS_A = 12.6, 2.6  # torus: radius of the tube's centre and the tube's radius
 TORUS_DELAY = 17.0  # days: the hot-dust rim's response delay
 TORUS_RIM_COLOUR = np.array([1.0, 0.45, 0.16])  # ~1200 K dust
 TORUS_BODY_COLOUR = np.array([0.30, 0.20, 0.16])  # dust lit faintly by the host's starlight
 HOST_COLOUR = np.array([1.0, 0.86, 0.66])
-SCENE_SCALE_LD = 21.0  # half the image width, in light-days (the torus is cropped at the sides)
+SCENE_SCALE_LD = 12.5  # half the image width, in light-days (the torus is cropped at the sides)
 # Bands: rest wavelength (Angstrom) and label.
 BANDS = [(1500, "FUV"), (4400, "B"), (5500, "V"), (8000, "I")]
 
@@ -226,7 +228,7 @@ class AGNRenderer:
         img += tor["body_back"][..., None] * TORUS_BODY_COLOUR * 0.25
         img += (tor["rim_back"] * 0.55 * rim_level)[..., None] * TORUS_RIM_COLOUR
         # The disc.
-        level = np.interp(t - self.tau, t_grid, light)
+        level = np.interp(t - self.tau, t_grid, light) ** IRRADIATION_CONTRAST
         temp = (self.t4_visc + self.t4_irr * level) ** 0.25
         log_t = np.clip(np.log10(temp), self.log_t[0], self.log_t[-1])
         idx = np.clip(((log_t - self.log_t[0]) / (self.log_t[-1] - self.log_t[0]) * 511).astype(int), 0, 511)
