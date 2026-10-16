@@ -39,9 +39,9 @@ from matplotlib.animation import FuncAnimation, PillowWriter  # noqa: E402
 from matplotlib.collections import LineCollection  # noqa: E402
 from matplotlib.colors import LogNorm  # noqa: E402
 
-from pycream2.grid_utils import graded_tau_grid  # noqa: E402
-from pycream2.plotting import blackbody_to_colour  # noqa: E402
-from pycream2.rippled_disc import (  # noqa: E402
+from discotau.grid_utils import graded_tau_grid  # noqa: E402
+from discotau.plotting import blackbody_to_colour  # noqa: E402
+from discotau.rippled_disc import (  # noqa: E402
     EXAMPLE_RIPPLES,
     NGC5548_RIM,
     mean_delay,

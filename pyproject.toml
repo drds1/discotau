@@ -3,9 +3,9 @@ requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pycream2"
-version = "0.1.0"
-description = "Continuum Reprocessing AGN MCMC: Bayesian fitting of AGN accretion-disc reverberation light curves with JAX and NumPyro"
+name = "discotau"
+version = "0.2.0"
+description = "Bayesian fitting of AGN accretion-disc reverberation light curves with JAX and NumPyro (the successor to CREAM, formerly pycream2)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -74,14 +74,14 @@ optional = true
 nautilus-sampler = ">=1.0"
 
 [project.urls]
-Homepage = "https://github.com/drds1/pycream2"
-Documentation = "https://drds1.github.io/pycream2/"
-Repository = "https://github.com/drds1/pycream2"
-Issues = "https://github.com/drds1/pycream2/issues"
+Homepage = "https://github.com/drds1/discotau"
+Documentation = "https://drds1.github.io/discotau/"
+Repository = "https://github.com/drds1/discotau"
+Issues = "https://github.com/drds1/discotau/issues"
 "Original CREAM (pycecream)" = "https://github.com/drds1/pycecream"
 
 [tool.setuptools.packages.find]
-include = ["pycream2*"]
+include = ["discotau*", "pycream2*"]  # pycream2: the deprecated alias of the old name
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -90,7 +90,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["pycream2"]
+source = ["discotau"]
 branch = true
 
 [tool.coverage.report]

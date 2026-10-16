@@ -1,7 +1,7 @@
 name: Docs
 
 # Builds the MkDocs site (mkdocs.yml, docs/) and publishes it to GitHub
-# Pages at https://drds1.github.io/pycream2/. Runs when the docs or the
+# Pages at https://drds1.github.io/discotau/. Runs when the docs or the
 # docstrings they render change on main, on each release, and on demand.
 # One-time set-up: repository Settings -> Pages -> Source: "GitHub Actions".
 on:
@@ -10,7 +10,7 @@ on:
     paths:
       - "docs/**"
       - "mkdocs.yml"
-      - "pycream2/**"
+      - "discotau/**"
       - ".github/workflows/docs.yml"
   release:
     types: [published]

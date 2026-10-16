@@ -844,7 +844,7 @@ def plot_optimise_restarts(
 
 
 def plot_disc_sed(result: dict, bands: Dict[str, dict], figsize=(10, 7.5)):
-    """The disc SED, distance and H_0 analysis (:func:`pycream2.disc_sed.disc_sed_analysis`):
+    """The disc SED, distance and H_0 analysis (:func:`discotau.disc_sed.disc_sed_analysis`):
     flux-flux diagram, variable SED against the disc's predicted response
     spectrum, mean disc SED against the model disc at the fitted distance, and
     the H_0 posterior. Fluxes in mJy, corrected for Galactic extinction."""

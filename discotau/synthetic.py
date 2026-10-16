@@ -127,11 +127,11 @@ def generate_synthetic_dataset(
         so the coefficients are directly comparable with fitted ``bg_{band}``.
     response : callable, optional
         The ground-truth response function, with the response-function contract
-        of :mod:`pycream2.model` (``(tau_grid, log_mdot, wavelength, inclination,
+        of :mod:`discotau.model` (``(tau_grid, log_mdot, wavelength, inclination,
         M_BH)``, e.g. a ``functools.partial`` of
-        :func:`pycream2.forward_model.thin_disk_response` or
-        :func:`pycream2.rippled_disc.rippled_disc_response`). Default: the
-        skew-normal :func:`pycream2.forward_model.response_function`.
+        :func:`discotau.forward_model.thin_disk_response` or
+        :func:`discotau.rippled_disc.rippled_disc_response`). Default: the
+        skew-normal :func:`discotau.forward_model.response_function`.
 
     Returns
     -------
@@ -357,12 +357,12 @@ def with_disc_fluxes(
     flux_scale: float = 1.0, variable_sed: str = "response", n_fine: int = 1500,
 ) -> dict:
     """Give a :func:`generate_synthetic_dataset` dataset absolute fluxes, for
-    trying the disc SED, distance and ``H_0`` analysis (:mod:`pycream2.disc_sed`)
+    trying the disc SED, distance and ``H_0`` analysis (:mod:`discotau.disc_sed`)
     on data whose answer is known.
 
     Each band becomes ``host + disc``: the model disc of the dataset's own
     ``log_mdot``/``inclination`` (``T ~ r^-3/4``, ``T_1`` from
-    :func:`~pycream2.forward_model.disk_t1_kelvin`) at the luminosity distance
+    :func:`~discotau.forward_model.disk_t1_kelvin`) at the luminosity distance
     that ``h0`` gives at ``redshift``. Its variable part, per standard
     deviation of the driver, is ``variable_fraction`` of the bluest band's mean
     disc flux there, and follows across the bands either the spectrum of the

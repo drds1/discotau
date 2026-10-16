@@ -4,100 +4,100 @@ Generated from the docstrings in the source code.
 
 ## Fitting
 
-::: pycream2.EchoFit
+::: discotau.EchoFit
 
 ## Disc SED, distance and H0
 
-::: pycream2.disc_sed
+::: discotau.disc_sed
 
-::: pycream2.disc_sed.disc_sed_analysis
+::: discotau.disc_sed.disc_sed_analysis
 
-::: pycream2.synthetic.with_disc_fluxes
+::: discotau.synthetic.with_disc_fluxes
 
 ## Rimmed and rippled discs
 
-::: pycream2.rippled_disc
+::: discotau.rippled_disc
 
-::: pycream2.rippled_disc.rippled_disc_response
+::: discotau.rippled_disc.rippled_disc_response
 
-::: pycream2.rippled_disc.disc_surface
+::: discotau.rippled_disc.disc_surface
 
-::: pycream2.rippled_disc.response_elements
+::: discotau.rippled_disc.response_elements
 
-::: pycream2.rippled_disc.rippled_disc_fnu
+::: discotau.rippled_disc.rippled_disc_fnu
 
-::: pycream2.rippled_disc.disc_height
+::: discotau.rippled_disc.disc_height
 
 ## Response functions
 
-::: pycream2.forward_model.lag_scaling
+::: discotau.forward_model.lag_scaling
 
-::: pycream2.forward_model.response_function
+::: discotau.forward_model.response_function
 
-::: pycream2.forward_model.thin_disk_response
+::: discotau.forward_model.thin_disk_response
 
-::: pycream2.forward_model.build_thin_disk_response_table
+::: discotau.forward_model.build_thin_disk_response_table
 
-::: pycream2.forward_model.build_thin_disk_response_fast
+::: discotau.forward_model.build_thin_disk_response_fast
 
-::: pycream2.forward_model.thin_disk_response_from_table
+::: discotau.forward_model.thin_disk_response_from_table
 
-::: pycream2.forward_model.tophat_response_free
+::: discotau.forward_model.tophat_response_free
 
-::: pycream2.forward_model.disk_temperature_profile
+::: discotau.forward_model.disk_temperature_profile
 
-::: pycream2.responses
+::: discotau.responses
 
 ## Forward model
 
-::: pycream2.forward_model.transfer_coeffs
+::: discotau.forward_model.transfer_coeffs
 
-::: pycream2.forward_model.compute_echo
+::: discotau.forward_model.compute_echo
 
-::: pycream2.forward_model.driver_at
+::: discotau.forward_model.driver_at
 
-::: pycream2.forward_model.transfer_matrices
+::: discotau.forward_model.transfer_matrices
 
-::: pycream2.forward_model.fourier_basis
+::: discotau.forward_model.fourier_basis
 
 ## Probabilistic model
 
-::: pycream2.model.reverberation_model
+::: discotau.model.reverberation_model
 
-::: pycream2.model.rw_prior_scale
+::: discotau.model.rw_prior_scale
 
-::: pycream2.model.drw_prior_scale
+::: discotau.model.drw_prior_scale
 
 ## Synthetic data
 
-::: pycream2.synthetic.generate_synthetic_dataset
+::: discotau.synthetic.generate_synthetic_dataset
 
-::: pycream2.synthetic.generate_free_lag_dataset
+::: discotau.synthetic.generate_free_lag_dataset
 
 ## Grids
 
-::: pycream2.grid_utils.estimate_dt_min
+::: discotau.grid_utils.estimate_dt_min
 
-::: pycream2.grid_utils.graded_tau_grid
+::: discotau.grid_utils.graded_tau_grid
 
-::: pycream2.grid_utils.check_tau_grid_resolution
+::: discotau.grid_utils.check_tau_grid_resolution
 
 ## Plotting
 
-::: pycream2.plotting.plot_lightcurve_fits
+::: discotau.plotting.plot_lightcurve_fits
 
-::: pycream2.plotting.plot_raw_lightcurves
+::: discotau.plotting.plot_raw_lightcurves
 
-::: pycream2.plotting.plot_power_spectrum
+::: discotau.plotting.plot_power_spectrum
 
-::: pycream2.plotting.plot_mcmc_diagnostics
+::: discotau.plotting.plot_mcmc_diagnostics
 
-::: pycream2.plotting.plot_corner
+::: discotau.plotting.plot_corner
 
-::: pycream2.plotting.plot_fourier_correlation
+::: discotau.plotting.plot_fourier_correlation
 
-::: pycream2.plotting.plot_bof
+::: discotau.plotting.plot_bof
 
-::: pycream2.plotting.wavelength_to_colour
+::: discotau.plotting.wavelength_to_colour
 
-::: pycream2.plotting.blackbody_to_colour
+::: discotau.plotting.blackbody_to_colour

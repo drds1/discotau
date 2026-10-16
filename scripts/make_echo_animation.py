@@ -4,7 +4,7 @@ make_echo_animation.py
 
 The README header animation: a flickering lamppost echoed by an accretion disc.
 
-What pycream2 models, drawn directly: a compact source above the black hole (the
+What discotau models, drawn directly: a compact source above the black hole (the
 lamppost) varies; its light heats the disc after a light-travel delay that
 depends on where each element sits, tau = sqrt(r^2 + h^2) + h cos i + y sin i
 (the near side, y < 0, first); and every band's light curve is the lamppost's
@@ -13,12 +13,12 @@ light curve smeared and delayed by that band's response function.
 - The disc: each pixel's temperature is the viscous profile plus the lamppost's
   heating at the delayed time, T^4 = T_visc^4 + T_irr^4 L(t - tau)/<L>, with
   T_irr^4 ~ h/d^3, drawn in its true blackbody colour
-  (pycream2.plotting.blackbody_to_colour), so every flicker sweeps outwards as
+  (discotau.plotting.blackbody_to_colour), so every flicker sweeps outwards as
   a ripple that reaches the near side first.
 - The light curves: the lamppost's L(t) (white) and each band's echo, L
-  convolved with pycream2.forward_model.thin_disk_response at the same
+  convolved with discotau.forward_model.thin_disk_response at the same
   accretion rate, inclination and mass, in its wavelength's colour
-  (pycream2.plotting.wavelength_to_colour), with the responses alongside. All
+  (discotau.plotting.wavelength_to_colour), with the responses alongside. All
   are drawn on the lamppost's scale, so the longer wavelengths' smaller, smoother
   and later variations are visible as such.
 - The lamppost varies stochastically, as an AGN does: red noise with a bending
@@ -56,8 +56,8 @@ import numpy as np
 from PIL import Image
 from scipy.ndimage import gaussian_filter
 
-from pycream2.forward_model import disk_temperature_profile, thin_disk_response
-from pycream2.plotting import blackbody_to_colour, wavelength_to_colour
+from discotau.forward_model import disk_temperature_profile, thin_disk_response
+from discotau.plotting import blackbody_to_colour, wavelength_to_colour
 
 # The disc: Fairall 9's black-hole mass, with an accretion rate that runs the
 # drawn disc from ~30,000 K inside to ~2,800 K at its rim (blue-white to

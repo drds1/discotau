@@ -1,5 +1,5 @@
 """
-Rimmed and rippled discs (pycream2.rippled_disc; Starkey, Huang, Horne & Lin
+Rimmed and rippled discs (discotau.rippled_disc; Starkey, Huang, Horne & Lin
 2023, MNRAS 519, 2754): the geometry, the shadows, the response function's
 limits, and a synthetic-data recovery. See docs/rippled_disc.md.
 """
@@ -12,13 +12,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import pycream2.model as model_module
-from pycream2 import EchoFit
-from pycream2 import disc_sed
-from pycream2.forward_model import disk_t1_kelvin, thin_disk_response
-from pycream2.grid_utils import graded_tau_grid
-from pycream2.responses import get_response
-from pycream2.rippled_disc import (
+import discotau.model as model_module
+from discotau import EchoFit
+from discotau import disc_sed
+from discotau.forward_model import disk_t1_kelvin, thin_disk_response
+from discotau.grid_utils import graded_tau_grid
+from discotau.responses import get_response
+from discotau.rippled_disc import (
     NGC5548_RIM,
     disc_height,
     disc_surface,
@@ -27,7 +27,7 @@ from pycream2.rippled_disc import (
     rippled_disc_fnu,
     rippled_disc_response,
 )
-from pycream2.synthetic import generate_synthetic_dataset
+from discotau.synthetic import generate_synthetic_dataset
 
 M_BH = 7e7
 LOG_MDOT = 0.0587  # a viscous disc at 1500 K at 5 light-days, as in the paper's NGC 5548 example

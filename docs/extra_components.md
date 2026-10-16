@@ -1,6 +1,6 @@
 # Extra components: diffuse continuum and slow backgrounds
 
-pycream2 models each light curve as a constant plus a scaled, delayed and
+discotau models each light curve as a constant plus a scaled, delayed and
 blurred echo of one driving light curve. Two optional components extend that
 picture. Both are **off by default** and are switched on light curve by light
 curve:
@@ -31,7 +31,7 @@ accretion disc. Intensive campaigns have repeatedly found the delays too
 long for a standard disc at the expected luminosity:
 - Fausnaugh et al. (2016) found NGC 5548's disc to be about three times
   larger than thin-disc theory predicts.
-- pycream2's own analysis of the same data finds the delays require
+- discotau's own analysis of the same data finds the delays require
   $M\dot M$ tens of times too large.
 
 The lag spectra also show structure a disc cannot make. The clearest case is
@@ -58,7 +58,7 @@ Cackett, Zoghbi & Ulrich (2022) modelled exactly this with two components per
 band: a small disc, plus an extended BLR reprocessor with a **log-normal
 delay distribution**, whose share of the response was free in each band.
 The model reproduced the frequency-resolved lags of NGC 5548, with the BLR
-fraction rising with wavelength. pycream2's `diffuse_continuum` option is
+fraction rising with wavelength. discotau's `diffuse_continuum` option is
 that model, embedded in the full forward fit rather than applied to lags
 measured beforehand.
 
@@ -86,7 +86,7 @@ In a forward-modelling fit, an unmodelled band-specific trend has nowhere to
 go but into the driver and the disc parameters.
 
 Detrending before fitting has two drawbacks. It throws away information, and
-it carries none of the trend's uncertainty into the result. pycream2 instead
+it carries none of the trend's uncertainty into the result. discotau instead
 fits the trend jointly with everything else, as polynomial terms whose
 coefficients have Gaussian priors. Because those coefficients enter the
 model linearly, they are integrated out exactly (section 2.4), at almost no
@@ -304,7 +304,7 @@ components that are not in the data and prefers them when they are.
 ## 3. Usage
 
 ```python
-from pycream2 import EchoFit
+from discotau import EchoFit
 
 ef = EchoFit(M_BH=1e8)
 ef.add_lightcurve("u", 3543.0, t_u, y_u, yerr_u, background_order=2)
@@ -327,7 +327,7 @@ From the command line, `scripts/fit_lightcurves.py` takes:
   driver.
 
 Synthetic data with known components come from
-`pycream2.synthetic.generate_synthetic_dataset(...,
+`discotau.synthetic.generate_synthetic_dataset(...,
 diffuse_continuum={band: (fraction, median, width_dex)},
 background={band: [b_1, ..., b_K]})`. These use the same basis and time axis
 as the fit, so the true coefficients compare directly with `bg_{band}`.
@@ -361,7 +361,7 @@ three Legendre basis functions over the campaign.*
 **Design.** Synthetic light curves come from
 `synthetic.generate_synthetic_dataset`:
 - **Bands and sampling:** five bands from u to z, 120 epochs each over 250
-  days, 3 per cent noise, and pycream2's default (skew-normal) response.
+  days, 3 per cent noise, and discotau's default (skew-normal) response.
 - **Disc:** $M_\mathrm{BH} = 10^8\mkern3mu M_\odot$, $\log\dot m = 0.3$,
   $i = 35^\circ$.
 - **Two kinds of data set:**

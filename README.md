@@ -1,6 +1,6 @@
-# 🔭 pycream2
+# 🔭 discotau
 
-`pycream2` is an AGN light curve fitting code that uses MCMC (via
+`discotau` is an AGN light curve fitting code that uses MCMC (via
 [JAX](https://github.com/google/jax) + [NumPyro](https://num.pyro.ai/)) to
 model multi-band light curves as a lagged echo of a lamppost-driven
 accretion disk[^1], inferring the posterior probability distributions of a
@@ -8,21 +8,25 @@ physically motivated disk model's parameters: accretion rate (`mdot`),
 inclination, and temperature profile. Read on for install instructions,
 tests on synthetic data, and example usage.
 
+The name is *disco* for the disc and *tau* (τ) for the delay, the light-travel
+time the whole method measures. `discotau` was called `pycream2` until October
+2026, and `import pycream2` still works (with a deprecation warning).
+
 **CREAM** stands for **C**ontinuum **R**eprocessing **A**GN **M**CMC.
-`pycream2` is the successor to the original CREAM Fortran code and its
+`discotau` is the successor to the original CREAM Fortran code and its
 Python wrapper, [`pycecream`](https://github.com/drds1/pycecream):
 a rewrite in pure JAX/NumPyro, with no Fortran compiler needed, gradient-based
 (NUTS) sampling and a fast direct-solve mode.
 
 ```bash
-pip install pycream2
+pip install discotau
 ```
 
-📚 **Documentation: [drds1.github.io/pycream2](https://drds1.github.io/pycream2/)**
+📚 **Documentation: [drds1.github.io/discotau](https://drds1.github.io/discotau/)**
 (user guide, background and API reference).
 
-If you use `pycream2` in published work, please cite Starkey, Horne &
-Villforth (2016): see [📝 Citing pycream2](#-citing-pycream2).
+If you use `discotau` in published work, please cite Starkey, Horne &
+Villforth (2016): see [📝 Citing discotau](#-citing-discotau).
 
 [^1]: The disk-reprocessing model of Krolik et al. 1991, ApJ, 371, 541 and
     Cackett, Horne & Winkler 2007, MNRAS, 380, 669; see also Starkey, Horne
@@ -30,9 +34,9 @@ Villforth (2016): see [📝 Citing pycream2](#-citing-pycream2).
     [arXiv:1511.06162](https://arxiv.org/abs/1511.06162), whose
     disk-response model this code implements.
 
-![An active galactic nucleus. A flickering lamppost above an inclined accretion disc, ringed by broad-line clouds and a dusty torus. Each flicker ripples outwards across the disc, near side first, and the clouds and the torus's inner face light up later. Below, the lamppost's light curve and its echoes in the far UV, B, V and I, each smoother, smaller and later than the last, beside their response functions](https://raw.githubusercontent.com/drds1/pycream2/main/docs/images/echo_animation.webp)
+![An active galactic nucleus. A flickering lamppost above an inclined accretion disc, ringed by broad-line clouds and a dusty torus. Each flicker ripples outwards across the disc, near side first, and the clouds and the torus's inner face light up later. Below, the lamppost's light curve and its echoes in the far UV, B, V and I, each smoother, smaller and later than the last, beside their response functions](https://raw.githubusercontent.com/drds1/discotau/main/docs/images/echo_animation.webp)
 
-*This is what `pycream2` models. A lamppost above the black hole flickers
+*This is what `discotau` models. A lamppost above the black hole flickers
 stochastically (red noise, as AGN do). Its light heats each part of the disc
 after a light-travel delay, so every flicker sweeps outwards as a ripple
 that reaches the near side first. The disc is drawn in the true blackbody
@@ -73,7 +77,7 @@ earlier animation of a fit taking shape is still produced by
 - [🧩 Extra components: diffuse continuum and slow backgrounds](#-extra-components-diffuse-continuum-and-slow-backgrounds)
 - [🌍 Disc SED, luminosity distance and H0](#-disc-sed-luminosity-distance-and-h0)
 - [⚠️ Status / caveats](#-status--caveats)
-- [📝 Citing pycream2](#-citing-pycream2)
+- [📝 Citing discotau](#-citing-discotau)
 
 ## 🔭 Background
 
@@ -117,7 +121,7 @@ want is one joint statistical model of *all* bands at once that propagates
 uncertainty properly through to the physical parameters (black hole mass,
 accretion rate, inclination), not just to a best-fit lag per band pair.
 
-`pycream2` is a specific, opinionated take on that joint fit:
+`discotau` is a specific, opinionated take on that joint fit:
 
 - **Fully Bayesian, one model, every band at once.** A single NumPyro model
   jointly infers the shared driving light curve, the disk response per
@@ -262,7 +266,7 @@ trusted.
 ## 📦 Package layout
 
 ```
-pycream2/
+discotau/
     __init__.py        public API (EchoFit, forward_model helpers, synthetic data)
     forward_model.py    lag_scaling, response_function, thin_disk_response
                           (accretion-disk physical response), build_thin_disk_response_fast
@@ -342,11 +346,11 @@ tests/
 
 ## ⚙️ Install
 
-To use `pycream2` as a library, install the released package from PyPI
+To use `discotau` as a library, install the released package from PyPI
 into any Python 3.10+ environment:
 
 ```bash
-pip install pycream2
+pip install discotau
 ```
 
 (Maintainers: [`docs/releasing.md`](docs/releasing.md) covers how to
@@ -403,8 +407,8 @@ poetry --version
 ### 📥 3. Get the code and install its dependencies
 
 ```bash
-git clone https://github.com/drds1/pycream2.git
-cd pycream2
+git clone https://github.com/drds1/discotau.git
+cd discotau
 poetry install --extras dev
 ```
 
@@ -447,7 +451,7 @@ want GPU/TPU support instead.
 ## 🚀 Quickstart
 
 ```python
-from pycream2 import EchoFit, generate_synthetic_dataset
+from discotau import EchoFit, generate_synthetic_dataset
 
 data = generate_synthetic_dataset(M_BH=1e8)
 
@@ -648,7 +652,7 @@ warning is raised otherwise); run multiple independent single-chain fits
 if you want chains for R-hat/ESS diagnostics with resume support.
 
 **Output location**, in priority order: the `output_dir=` argument to
-`EchoFit`/`EchoFit.resume()`, then the `PYCREAM2_OUTPUT_DIR` environment
+`EchoFit`/`EchoFit.resume()`, then the `DISCOTAU_OUTPUT_DIR` environment
 variable, then `./outputs` (relative to wherever you run your script from).
 `outputs/` is gitignored by default.
 
@@ -757,8 +761,8 @@ poetry run pytest                                          # full suite, ~15 min
 poetry run pytest -m "not slow"                             # skip the handful of
                                                              # full/multi-chain MCMC
                                                              # recovery tests, ~10 min
-poetry run pytest --cov=pycream2 --cov-report=term-missing   # + a coverage summary
-poetry run pytest --cov=pycream2 --cov-report=html           # + an HTML report,
+poetry run pytest --cov=discotau --cov-report=term-missing   # + a coverage summary
+poetry run pytest --cov=discotau --cov-report=html           # + an HTML report,
                                                              # open htmlcov/index.html
 ```
 
@@ -813,7 +817,7 @@ run scales):
 
 ```bash
 python scripts/profile_pipeline.py                    # a few minutes
-python scripts/profile_pipeline.py --outdir /tmp/pycream2_profile
+python scripts/profile_pipeline.py --outdir /tmp/discotau_profile
 ```
 
 Every per-call timing is measured under `jax.jit`, not eager Python -- see
@@ -864,11 +868,11 @@ on `tau_grid`. Two are built in:
   radial grid, no truncation). A single Gaussian smoothing convolution is
   then applied on top (matching a genuine, physically-motivated part of
   the original Fortran, not just numerical clean-up -- see the docs below
-  for why), exposed via `pycream2.responses` for discoverability:
+  for why), exposed via `discotau.responses` for discoverability:
 
   ```python
-  import pycream2.model as model
-  from pycream2.responses import get_response
+  import discotau.model as model
+  from discotau.responses import get_response
 
   model.response_function = get_response("thin_disk")
   ```
@@ -895,7 +899,7 @@ on `tau_grid`. Two are built in:
   disk integral rather than something either optimisation removes:
 
   ```python
-  from pycream2.forward_model import build_thin_disk_response_fast
+  from discotau.forward_model import build_thin_disk_response_fast
 
   model.response_function = build_thin_disk_response_fast(M_BH=1e8)
   ```
@@ -906,7 +910,7 @@ on `tau_grid`. Two are built in:
   `docs/thin_disk_response.md` section 7 for exactly how much that costs
   in accuracy and when to use the exact `thin_disk_response` instead.
 
-`pycream2.responses.register_response(name, fn)` registers your own
+`discotau.responses.register_response(name, fn)` registers your own
 response under a name for `get_response` to find; `available_responses()`
 lists what's registered. Registering doesn't by itself change what a fit
 uses -- reassigning `model.response_function` (as above) is the one place
@@ -964,7 +968,7 @@ The delays fix the disc's temperature profile in light-days, so the model
 disc's flux depends only on its distance. Comparing it with the observed disc
 flux gives the luminosity distance, and with the redshift, H₀ (Cackett, Horne
 & Winkler 2007 found H₀ = 44 ± 5 km/s/Mpc this way). With `sed_analysis=True`
-pycream2 runs this after every `fit()` or `optimise()` and adds it to the
+discotau runs this after every `fit()` or `optimise()` and adds it to the
 report. It covers:
 
 - **Host and disc separation:** a flux-flux decomposition, assuming the
@@ -995,7 +999,7 @@ further away (fit a slow background with `background_order`).
 
 ## 🏔️ Rimmed and rippled discs
 
-`pycream2.rippled_disc` implements the rimmed and rippled discs of Starkey,
+`discotau.rippled_disc` implements the rimmed and rippled discs of Starkey,
 Huang, Horne & Lin (2023, MNRAS 519, 2754): a disc with a thickness profile
 H(r) whose surfaces tilted towards the lamppost intercept more of its light,
 so they are hotter and respond more strongly than a flat disc at the same
@@ -1010,8 +1014,8 @@ with the disc's geometry fixed:
 
 ```python
 import functools
-import pycream2.model as model
-from pycream2.rippled_disc import rippled_disc_response, NGC5548_RIM
+import discotau.model as model
+from discotau.rippled_disc import rippled_disc_response, NGC5548_RIM
 model.response_function = functools.partial(rippled_disc_response, **NGC5548_RIM)
 ```
 
@@ -1104,9 +1108,9 @@ This is a research scaffold, not a validated production pipeline:
   you want to bound worst-case sampling cost or add cheap diagnostic chains
   while doing so.
 
-## 📝 Citing pycream2
+## 📝 Citing discotau
 
-If you use `pycream2` in work that leads to a publication, please cite the
+If you use `discotau` in work that leads to a publication, please cite the
 paper that introduced the CREAM accretion-disk reprocessing model this
 code implements:
 
@@ -1132,9 +1136,9 @@ code implements:
 }
 ```
 
-Please also mention `pycream2` by name (and the version you used, from
-`pycream2.__version__`) in your software or methods section, with a link to
+Please also mention `discotau` by name (and the version you used, from
+`discotau.__version__`) in your software or methods section, with a link to
 this repository. The same citation is in [`CITATION.cff`](CITATION.cff),
 which GitHub shows as a "Cite this repository" button in the sidebar.
 
-`pycream2` is released under the [MIT licence](LICENSE).
+`discotau` is released under the [MIT licence](LICENSE).

@@ -16,8 +16,8 @@ import numpy as np
 import jax.numpy as jnp
 import pytest
 
-from pycream2.forward_model import transfer_coeffs, compute_echo, response_function
-from pycream2.echofit import EchoFit
+from discotau.forward_model import transfer_coeffs, compute_echo, response_function
+from discotau.echofit import EchoFit
 
 
 def test_global_rescale_of_driver_and_gain_is_an_exact_degeneracy():

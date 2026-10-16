@@ -12,7 +12,7 @@ an MCMC fit's behaviour.
 import numpy as np
 import jax.numpy as jnp
 
-from pycream2.forward_model import transfer_coeffs, compute_echo
+from discotau.forward_model import transfer_coeffs, compute_echo
 
 
 def _fixed_width_tophat(tau_grid, tau_mean, half_width):

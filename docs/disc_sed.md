@@ -8,7 +8,7 @@ test of Cackett, Horne & Winkler (2007, MNRAS 380, 669), who found $H_0 = 44 \pm
 from 14 AGN discs, a factor of 1.6 below the accepted value: the discs were fainter (or, equivalently,
 larger) than the standard model predicts.
 
-pycream2 runs it after any fit, opt-in, and adds it to the report. It answers three questions:
+discotau runs it after any fit, opt-in, and adds it to the report. It answers three questions:
 
 1. Is the **variable SED** (bright minus faint) consistent with the disc that the delays imply?
 2. What **host galaxy** light lies under the disc in each band?
@@ -20,7 +20,7 @@ other than reverberation (see [Caveats](#caveats)).
 ## Quick start
 
 ```python
-from pycream2 import EchoFit
+from discotau import EchoFit
 
 ef = EchoFit(
     M_BH=2.55e8,
@@ -135,7 +135,7 @@ which is quoted as `dl_mpc`/`h0`. $H_0$ follows from $D_L$ in flat ΛCDM.
 ## Worked example
 
 `scripts/plot_disc_sed_example.py` makes synthetic light curves with a known answer, using
-`pycream2.synthetic.with_disc_fluxes`:
+`discotau.synthetic.with_disc_fluxes`:
 - a model disc at the distance $H_0 = 70$ gives at $z = 0.03$ (131.4 Mpc);
 - variability following the disc's lamppost response;
 - a host galaxy (none in u, rising to 3.5 mJy in z);

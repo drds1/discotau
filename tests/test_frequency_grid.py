@@ -7,9 +7,9 @@ both October 2026 (CLAUDE.md decision #29). No fits: grid construction only.
 import numpy as np
 import pytest
 
-from pycream2 import run_manager
-from pycream2.echofit import DEFAULT_BACKGROUND_ORDER, F_MAX_CYCLES_PER_DAY, EchoFit
-from pycream2.grid_utils import hybrid_frequency_grid
+from discotau import run_manager
+from discotau.echofit import DEFAULT_BACKGROUND_ORDER, F_MAX_CYCLES_PER_DAY, EchoFit
+from discotau.grid_utils import hybrid_frequency_grid
 
 
 def _echofit(t_end=100.0):

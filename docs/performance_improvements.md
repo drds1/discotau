@@ -122,7 +122,7 @@ The original prompt for this work was porting the CREAM Fortran code's
 `itaumax` optimisation: stop the convolution lookback at the first lag where
 $\psi$ has decayed back to zero. That was a real saving there, because CREAM
 convolves in *real space*: an $(n_t \times n_\tau)$ double loop per band,
-where every skipped lag saves $n_t$ multiply-adds. In pycream2 the lag grid
+where every skipped lag saves $n_t$ multiply-adds. In discotau the lag grid
 only enters through $W_c\psi$ and $W_s\psi$. After precomputation, the
 whole lag-dependent cost is one ~0.03 ms matrix-vector product, so a
 cut-off has almost nothing left to save. It also could not be dynamic:

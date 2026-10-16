@@ -1,12 +1,12 @@
 """
 The disc's spectrum, its luminosity distance and the Hubble constant from a
-fitted :class:`~pycream2.echofit.EchoFit`: the test of Cackett, Horne & Winkler
+fitted :class:`~discotau.echofit.EchoFit`: the test of Cackett, Horne & Winkler
 (2007, MNRAS 380, 669), who found H_0 = 44 +/- 5 km/s/Mpc from 14 AGN discs.
 
 The delays fix the disc's temperature profile in light-days,
 ``T(r) = T_1 r^-alpha (1 - sqrt(r_in/r))^(1/4)`` (``T_1`` from ``log_mdot`` and
-``M_BH``, :func:`~pycream2.forward_model.disk_t1_kelvin`), mixed with the
-lamppost's irradiation exactly as :func:`~pycream2.forward_model.thin_disk_response`
+``M_BH``, :func:`~discotau.forward_model.disk_t1_kelvin`), mixed with the
+lamppost's irradiation exactly as :func:`~discotau.forward_model.thin_disk_response`
 mixes it (``include_irradiation``, on by default), and the fit gives its
 inclination. Such a disc seen from a luminosity distance ``D_L`` has
 
@@ -58,7 +58,7 @@ Caveats worth stating with any result: the zero point assumes the bluest band
 has no constant component; a slow, non-reverberating trend left unmodelled is
 absorbed into long responses and makes the disc look hotter and so the
 distance larger (fit it with ``background_order``); and the absolute
-temperature scale depends on the response weighting (pycream2's lamppost
+temperature scale depends on the response weighting (discotau's lamppost
 geometry).
 """
 
@@ -197,11 +197,11 @@ def disc_sed_analysis(
     ``D_L`` (Mpc), ``H_0``, the intrinsic ``E(B-V)``, ``alpha_var``, ``T_1``,
     ``alpha``, the inclination, and per band the variable, disc, total and
     constant fluxes (mJy, dereddened) and the per-band distance) and
-    ``"draws"`` (per-draw arrays, for :func:`pycream2.plotting.plot_disc_sed`).
+    ``"draws"`` (per-draw arrays, for :func:`discotau.plotting.plot_disc_sed`).
 
     ``include_irradiation``/``irradiation_weight``/``lamppost_height_rs`` set
     the disc's temperature profile, and should match the response function the
-    fit used (the defaults match :func:`~pycream2.forward_model.thin_disk_response`'s).
+    fit used (the defaults match :func:`~discotau.forward_model.thin_disk_response`'s).
     """
     if distance_method not in ("host_band", "flux_flux"):
         raise ValueError(f"distance_method must be 'host_band' or 'flux_flux', got {distance_method!r}")

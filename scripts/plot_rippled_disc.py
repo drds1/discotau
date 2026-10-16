@@ -2,7 +2,7 @@
 plot_rippled_disc.py
 ====================
 
-Figures and numbers for docs/rippled_disc.md (pycream2.rippled_disc; Starkey,
+Figures and numbers for docs/rippled_disc.md (discotau.rippled_disc; Starkey,
 Huang, Horne & Lin 2023): a flat disc, the NGC 5548 rim and illustrative
 ripples, all with a viscous disc at 1500 K at 5 light-days (M_BH = 7e7 Msun)
 irradiated with eps_LP = 0.2.
@@ -33,12 +33,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-import pycream2.model as model  # noqa: E402
-from pycream2 import EchoFit  # noqa: E402
-from pycream2.forward_model import thin_disk_response  # noqa: E402
-from pycream2.grid_utils import graded_tau_grid  # noqa: E402
-from pycream2.plotting import wavelength_to_colour  # noqa: E402
-from pycream2.rippled_disc import (  # noqa: E402
+import discotau.model as model  # noqa: E402
+from discotau import EchoFit  # noqa: E402
+from discotau.forward_model import thin_disk_response  # noqa: E402
+from discotau.grid_utils import graded_tau_grid  # noqa: E402
+from discotau.plotting import wavelength_to_colour  # noqa: E402
+from discotau.rippled_disc import (  # noqa: E402
     EXAMPLE_RIPPLES,
     NGC5548_RIM,
     disc_surface,
@@ -46,7 +46,7 @@ from pycream2.rippled_disc import (  # noqa: E402
     rippled_disc_fnu,
     rippled_disc_response,
 )
-from pycream2.synthetic import generate_synthetic_dataset  # noqa: E402
+from discotau.synthetic import generate_synthetic_dataset  # noqa: E402
 
 OUT = Path(__file__).resolve().parents[1] / "docs" / "images"
 M_BH, LOG_MDOT, INCLINATION = 7e7, 0.0587, 45.0

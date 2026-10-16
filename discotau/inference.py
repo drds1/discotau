@@ -45,7 +45,7 @@ def run_mcmc(
     Parameters
     ----------
     model : callable
-        A NumPyro model function, e.g. ``pycream2.model.reverberation_model``.
+        A NumPyro model function, e.g. ``discotau.model.reverberation_model``.
     model_kwargs : dict
         Keyword arguments passed through to ``model`` on every call
         (frequency grid, tau grid, fixed M_BH, band data, ...).

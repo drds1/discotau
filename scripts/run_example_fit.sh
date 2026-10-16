@@ -2,7 +2,7 @@
 # run_example_fit.sh
 # ===================
 #
-# A worked, runnable example of the whole pycream2 terminal workflow: make
+# A worked, runnable example of the whole discotau terminal workflow: make
 # some example light curve data, fit it as a managed/resumable run, resume
 # it, and (separately) run a quick multi-chain diagnostic fit. Copy/adapt
 # the individual `python scripts/fit_lightcurves.py ...` commands below for

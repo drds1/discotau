@@ -4,7 +4,7 @@ Figures and numbers for docs/extra_components.md: the diffuse-continuum
 recovery study showing the accretion-disc parameters are still recovered
 with them switched on.
 
-The study simulates light curves (pycream2.synthetic.generate_synthetic_dataset,
+The study simulates light curves (discotau.synthetic.generate_synthetic_dataset,
 five SDSS-like bands, the default response) either without extra components
 ("plain") or with a diffuse continuum in the three reddest bands and slow
 trends in two bands ("extras"), for several noise realisations, and fits each
@@ -28,10 +28,10 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
-from pycream2 import EchoFit
-from pycream2.forward_model import legendre_background_basis, lognormal_response, mix_diffuse_continuum, response_function
-from pycream2.plotting import wavelength_to_colour
-from pycream2.synthetic import generate_synthetic_dataset
+from discotau import EchoFit
+from discotau.forward_model import legendre_background_basis, lognormal_response, mix_diffuse_continuum, response_function
+from discotau.plotting import wavelength_to_colour
+from discotau.synthetic import generate_synthetic_dataset
 
 OUT = Path(__file__).resolve().parents[1] / "docs" / "images"
 M_BH = 1e8

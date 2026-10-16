@@ -4,10 +4,10 @@
 import numpy as np
 import pytest
 
-import pycream2.model as model_mod
-from pycream2 import EchoFit
-from pycream2.forward_model import thin_disk_response
-from pycream2.synthetic import generate_synthetic_dataset
+import discotau.model as model_mod
+from discotau import EchoFit
+from discotau.forward_model import thin_disk_response
+from discotau.synthetic import generate_synthetic_dataset
 
 
 @pytest.fixture

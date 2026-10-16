@@ -1,10 +1,10 @@
-# pycream2 and CREAM: comparing the thin-disc response functions
+# discotau and CREAM: comparing the thin-disc response functions
 
-This page compares pycream2's thin-disc response function,
+This page compares discotau's thin-disc response function,
 `forward_model.thin_disk_response`, with the one in the original CREAM
 Fortran code (subroutine `tfbx` in `cream_f90.f90`, Starkey, Horne & Villforth
 2016). The question behind it is why CREAM's published response functions all
-start at zero at zero lag, while pycream2's, especially at high inclination,
+start at zero at zero lag, while discotau's, especially at high inclination,
 start at a finite value.
 
 In short:
@@ -12,15 +12,15 @@ In short:
 - **CREAM forces the first lag bin of every response to zero.** It is a
   hard-coded line at the end of `tfbx`, not a property of the disc. The
   response rises almost vertically in both codes.
-- **With the same smoothing, pycream2 reproduces CREAM's response shapes
+- **With the same smoothing, discotau reproduces CREAM's response shapes
   closely at every inclination tested.** Mean and median delays agree to
-  within about 4 per cent, pycream2's being about 0.1 days shorter.
+  within about 4 per cent, discotau's being about 0.1 days shorter.
 - **The remaining differences come from deliberate modelling choices.** They
   are the treatment of the inner edge of the disc and the exact form of the
   lamppost dilution.
 - **CREAM does not put the lamppost height into the delay,** and nor did
-  pycream2 until this comparison.
-- **The finite response at zero lag in pycream2 came from its default
+  discotau until this comparison.
+- **The finite response at zero lag in discotau came from its default
   smoothing.** That smoothing was about ten times wider than CREAM's on a
   typical lag grid.
 - **All three follow-ups are now implemented** (September 2026; see
@@ -44,7 +44,7 @@ Both codes get the same disc:
 | Quantity | Value |
 |---|---|
 | Black-hole mass | $10^{7.51}\mkern3mu M_\odot$ (NGC 5548; Pancoast et al. 2014) |
-| Temperature at one light-day, $T_1$ | 19,400 K (pycream2's `log_mdot` = 3.079) |
+| Temperature at one light-day, $T_1$ | 19,400 K (discotau's `log_mdot` = 3.079) |
 | Temperature slope | 3/4 (CREAM: `slope_v` = `slope_i` = 0.75) |
 | Inner radius | $3R_\mathrm{S}$ (CREAM: `rinsch` = 1) |
 | Wavelength | 5000 Å |
@@ -53,12 +53,12 @@ Both codes get the same disc:
 
 CREAM's temperature is given by its viscous term alone (irradiation
 temperature `T1i` = 0). Its response weight still carries the lamppost
-dilution, as pycream2's does.
+dilution, as discotau's does.
 
-For the like-for-like comparison, pycream2 uses CREAM's smoothing convention,
+For the like-for-like comparison, discotau uses CREAM's smoothing convention,
 a Gaussian as wide as the lag-grid spacing (`smoothing_days` = the grid
 spacing), and CREAM's delay surface, with no lamppost height
-(`delay_lamppost_height=False`). pycream2's old and new defaults are shown
+(`delay_lamppost_height=False`). discotau's old and new defaults are shown
 separately:
 
 - **old default:** a Gaussian in τ, 0.1 of the Wien radius wide, with no
@@ -78,11 +78,11 @@ MPLBACKEND=Agg poetry run python scripts/compare_cream_response.py \
 This writes `docs/images/cream_response_comparison.png` and the numbers in
 `docs/images/cream_response_comparison.json`.
 
-![CREAM and pycream2 thin-disc responses](images/cream_response_comparison.png)
+![CREAM and discotau thin-disc responses](images/cream_response_comparison.png)
 
 *Each response normalised to its peak. Black: CREAM's `tfbx`. Red dashed:
-pycream2 with CREAM's smoothing and delay. Blue dotted: pycream2's old
-default. Green dash-dotted: pycream2's new default. Top row: 0.05-day lag grid.
+discotau with CREAM's smoothing and delay. Blue dotted: discotau's old
+default. Green dash-dotted: discotau's new default. Top row: 0.05-day lag grid.
 Bottom row: 0.005-day lag grid. At 80 degrees on the coarse grid the new
 default's tail sits lower only because its sharper peak is resolved; its
 mean and median delays match the red curve's.*
@@ -112,7 +112,7 @@ point, whatever the disc's parameters. The next bin shows what the disc is
 actually doing. On a 0.05-day grid that bin is already at 46 per cent of the
 peak face-on, and at 100 per cent at 80 degrees:
 
-| Grid | Inclination (deg) | CREAM: mean / median delay (d) | pycream2, CREAM's smoothing and delay | pycream2, old default | pycream2, new default | CREAM second bin / peak | pycream2 ψ(0) / peak, old / new | Largest shape difference |
+| Grid | Inclination (deg) | CREAM: mean / median delay (d) | discotau, CREAM's smoothing and delay | discotau, old default | discotau, new default | CREAM second bin / peak | discotau ψ(0) / peak, old / new | Largest shape difference |
 |---|---|---|---|---|---|---|---|---|
 | 0.05 d | 0 | 2.82 / 2.30 | 2.72 / 2.20 | 2.73 / 2.25 | 2.73 / 2.20 | 0.46 | 0.90 / 0.00 | 0.14 |
 | 0.05 d | 30 | 2.68 / 2.10 | 2.59 / 2.00 | 2.61 / 2.00 | 2.60 / 2.00 | 0.51 | 0.94 / 0.00 | 0.12 |
@@ -124,10 +124,10 @@ peak face-on, and at 100 per cent at 80 degrees:
 | 0.005 d | 80 | 2.36 / 1.50 | 2.28 / 1.41 | 2.43 / 1.57 | 2.29 / 1.41 | 0.64 | 1.00 / 0.00 | 0.03 |
 
 *Delays are computed over the 0 to 10-day grid for all three responses. "Largest shape
-difference" is the largest absolute difference between CREAM and pycream2 (same
+difference" is the largest absolute difference between CREAM and discotau (same
 smoothing and delay), both normalised to their peaks, after CREAM's forced first bin.*
 
-pycream2's unsmoothed response is also exactly zero at zero lag: its 1-D
+discotau's unsmoothed response is also exactly zero at zero lag: its 1-D
 reduction (section 4 of [Thin-disk response function](thin_disk_response.md))
 carries a factor of τ. But it rises within about 0.003 to
 0.015 days, because the lamppost's $h/d^3$ dilution weights the response
@@ -138,48 +138,48 @@ a gradual rise from zero. CREAM's zero is imposed on the first grid point.
 
 ## Finding 2: with the same smoothing, the shapes agree
 
-With CREAM's smoothing and delay, pycream2's response follows CREAM's closely
+With CREAM's smoothing and delay, discotau's response follows CREAM's closely
 at every inclination and on both grids (red dashed against black in the
 figure). That
 includes the sharp near-side spike at 80 degrees and the long far-side tail.
 Mean and median delays agree to within about 4 per cent. On the fine grid,
 CREAM's response shows scatter from bin to bin, because `tfbx` places each
-disc element at a random azimuth (`ranu`). pycream2's integral over azimuth is
+disc element at a random azimuth (`ranu`). discotau's integral over azimuth is
 evaluated exactly, so its response is smooth.
 
 ## Finding 3: the remaining differences are modelling choices
 
 The largest shape differences (0.25 to 0.28 of the peak) are at lags below
-about 0.5 days for a nearly face-on disc. There pycream2's response rises
+about 0.5 days for a nearly face-on disc. There discotau's response rises
 faster, which also makes its mean delay about 0.1 days shorter. The codes
 differ in two ways that affect the innermost disc, where these lags come from:
 
 - **The inner edge.**
-  - pycream2's temperature profile includes the zero-torque factor
+  - discotau's temperature profile includes the zero-torque factor
     $(1-\sqrt{r_\mathrm{in}}/\sqrt{r})^{1/4}$.
   - Its response starts at the temperature peak, $1.36\mkern3mu r_\mathrm{in}$ for
     slope 3/4 (see [Thin-disk response function](thin_disk_response.md)).
   - In CREAM the zero-torque factor is commented out of the temperature used
     by `tfbx`, and the radial integral starts at $r_\mathrm{in}$.
-  - pycream2's inner disc is therefore cooler. At 5000 Å a cooler inner ring
+  - discotau's inner disc is therefore cooler. At 5000 Å a cooler inner ring
     responds more strongly: in the Rayleigh–Jeans limit the weight scales as
     $T^{-3}$.
   - This is the most likely cause of the faster rise. We have not isolated it
     by switching the factor off.
-  - Since October 2026 pycream2's default response mixes in lamppost
+  - Since October 2026 discotau's default response mixes in lamppost
     irradiation (`include_irradiation=True`), which keeps the inner disc hot
     and removes this inner-edge response. The comparison on this page uses the
     viscous-only response (`include_irradiation=False`), as CREAM is run here
     with no irradiation temperature.
 - **The dilution.**
-  - pycream2 uses the exact lamppost geometry, $h/d^3$ with
+  - discotau uses the exact lamppost geometry, $h/d^3$ with
     $d=\sqrt{r^2+h^2}$.
   - CREAM uses its far-field form, $(r_0/r)^{4\alpha_\mathrm{irr}}$, which is
     $r^{-3}$ for the standard irradiation slope.
   - The two differ only for $r\lesssim h$. With $h = 3R_\mathrm{S}$ that is
     about 0.01 light-days for NGC 5548, so it matters little here.
 
-**CREAM does not include the lamppost height in the delay,** and pycream2's
+**CREAM does not include the lamppost height in the delay,** and discotau's
 delay was the same until this comparison. CREAM's delay is
 `taulag = rnow*(1.+ sininc*cosaz)`, as in Starkey, Horne & Villforth (2016)
 eq. 5. `tfbx` computes the lamppost height in
@@ -187,12 +187,12 @@ light-days (`xhld`) but never uses it. With the height included, the delay
 becomes $\tau = \sqrt{r^2+h^2} + h\cos i + r\sin i\cos\phi$ (over $c$), and no
 light arrives before roughly $h(1+\cos i)/c$. For NGC 5548 that is about
 0.02 days, far too small to change the response's appearance on a scale of
-days, but it is the correct geometry, and pycream2 now uses it (see
+days, but it is the correct geometry, and discotau now uses it (see
 [What changed](#what-changed)).
 
-## Finding 4: pycream2's old default smoothing was what departed from CREAM
+## Finding 4: discotau's old default smoothing was what departed from CREAM
 
-pycream2's default smoothing width was `smoothing_frac` = 0.1 of the Wien
+discotau's default smoothing width was `smoothing_frac` = 0.1 of the Wien
 radius. That is about 0.5 days at 5000 Å for this disc, ten times CREAM's
 width on a 0.05-day grid and a hundred times it on a 0.005-day grid.
 

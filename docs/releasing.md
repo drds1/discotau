@@ -1,9 +1,9 @@
-# Releasing pycream2 to PyPI
+# Releasing discotau to PyPI
 
-How to publish a new version of `pycream2` to
-[PyPI](https://pypi.org/project/pycream2/). Every release is a GitHub
+How to publish a new version of `discotau` to
+[PyPI](https://pypi.org/project/discotau/). Every release is a GitHub
 release: publishing one triggers
-[`.github/workflows/publish.yml`](https://github.com/drds1/pycream2/blob/main/.github/workflows/publish.yml), which
+[`.github/workflows/publish.yml`](https://github.com/drds1/discotau/blob/main/.github/workflows/publish.yml), which
 builds the package and uploads it to PyPI. Nobody uploads by hand, and no
 API token is stored anywhere.
 
@@ -19,7 +19,7 @@ API token is stored anywhere.
 ## One-off setup
 
 This has to happen once, before the first release. Skip it if
-https://pypi.org/project/pycream2/ already exists and lists `drds1/pycream2`
+https://pypi.org/project/discotau/ already exists and lists `drds1/discotau`
 under "Trusted publishers" in the project's settings.
 
 PyPI needs to know it can trust uploads coming from this repository's
@@ -32,9 +32,9 @@ workflow ("trusted publishing"):
 
    | Field | Value |
    |---|---|
-   | PyPI Project Name | `pycream2` |
+   | PyPI Project Name | `discotau` |
    | Owner | `drds1` |
-   | Repository name | `pycream2` |
+   | Repository name | `discotau` |
    | Workflow name | `publish.yml` |
    | Environment name | `pypi` |
 
@@ -73,7 +73,7 @@ Two files, and both must be bumped together:
 | `CITATION.cff` | `version: 0.1.0` | What GitHub's "Cite this repository" button shows. |
 
 `tests/test_version_consistency.py` fails if the two disagree.
-`pycream2.__version__` is not a third copy: it reads the installed
+`discotau.__version__` is not a third copy: it reads the installed
 package's metadata, which comes from `pyproject.toml`. In a local
 development install it only updates after you reinstall (`poetry install`),
 so a freshly bumped checkout can still report the old number until then.
@@ -144,15 +144,15 @@ git status            # must be clean
 
 - In the **Actions** tab, "Publish to PyPI" shows both jobs (build,
   publish) green.
-- https://pypi.org/project/pycream2/ shows the new version, with the README
+- https://pypi.org/project/discotau/ shows the new version, with the README
   (including the animation) rendered.
 - A clean install picks it up:
 
   ```bash
-  python -m venv /tmp/pycream2-check
-  /tmp/pycream2-check/bin/pip install pycream2==0.2.0
-  /tmp/pycream2-check/bin/python -c "import pycream2; print(pycream2.__version__)"
-  rm -rf /tmp/pycream2-check
+  python -m venv /tmp/discotau-check
+  /tmp/discotau-check/bin/pip install discotau==0.2.0
+  /tmp/discotau-check/bin/python -c "import discotau; print(discotau.__version__)"
+  rm -rf /tmp/discotau-check
   ```
 
   PyPI's index can take a minute or two to show a new version.
@@ -161,7 +161,7 @@ git status            # must be clean
 
 - **Publish job fails with "invalid-publisher" or a trusted-publishing
   error**: the pending/trusted publisher on PyPI doesn't exactly match the
-  workflow. Check the owner, repository name (`pycream2`, not the old
+  workflow. Check the owner, repository name (`discotau`, not the old
   `echofit`), workflow file name (`publish.yml`) and environment (`pypi`).
   Fix it on PyPI, then re-run the failed job from the Actions tab; there's
   no need to make a new release.
@@ -174,7 +174,7 @@ git status            # must be clean
   above), fix `main`, and release again. If it succeeded, the upload can't
   be replaced; release a new PATCH version instead.
 - **A broken version made it to PyPI**: *yank* it (on PyPI, the project's
-  **Manage → Releases → Options → Yank**). `pip install pycream2` then skips
+  **Manage → Releases → Options → Yank**). `pip install discotau` then skips
   it, while anyone who pinned exactly that version can still install it.
   Then release a fixed PATCH version. Don't delete it: the number can never
   be reused anyway.

@@ -1,15 +1,15 @@
 cff-version: 1.2.0
 message: >-
-  If you use pycream2 in published work, please cite the paper below
-  (Starkey, Horne & Villforth 2016) and mention pycream2 by name and version.
-title: "pycream2: Continuum Reprocessing AGN MCMC"
+  If you use discotau in published work, please cite the paper below
+  (Starkey, Horne & Villforth 2016) and mention discotau by name and version.
+title: "discotau: AGN accretion-disc reverberation modelling (successor to CREAM)"
 type: software
 authors:
   - family-names: Starkey
     given-names: David
 license: MIT
-repository-code: "https://github.com/drds1/pycream2"
-version: 0.1.0
+repository-code: "https://github.com/drds1/discotau"
+version: 0.2.0
 keywords:
   - AGN
   - reverberation mapping

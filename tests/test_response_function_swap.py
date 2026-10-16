@@ -1,6 +1,6 @@
 """
 Regression test for CLAUDE.md design decision #5 ("response function is
-swappable by contract"): swapping ``pycream2.model.response_function`` must
+swappable by contract"): swapping ``discotau.model.response_function`` must
 be honoured by *both* fitting and ``EchoFit.plot_lightcurve_fits()``.
 
 It previously wasn't -- ``echofit.py`` had its own independent
@@ -13,10 +13,10 @@ import numpy as np
 import jax.numpy as jnp
 import pytest
 
-import pycream2.model as model_mod
-from pycream2.forward_model import lag_scaling
-from pycream2.synthetic import generate_synthetic_dataset
-from pycream2.echofit import EchoFit
+import discotau.model as model_mod
+from discotau.forward_model import lag_scaling
+from discotau.synthetic import generate_synthetic_dataset
+from discotau.echofit import EchoFit
 
 
 def _tophat_response(tau_grid, log_mdot, wavelength, inclination, M_BH, width_frac=0.3):

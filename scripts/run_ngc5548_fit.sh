@@ -2,7 +2,7 @@
 # run_ngc5548_fit.sh
 # ===================
 #
-# A worked, runnable example of pycream2 applied to a *real* AGN light
+# A worked, runnable example of discotau applied to a *real* AGN light
 # curve dataset: NGC 5548's AGN STORM continuum monitoring campaign
 # (Fausnaugh, Denney, Barth, et al. 2016, ApJ 821, 56), downloaded
 # directly from VizieR (catalog J/ApJ/821/56). See README.md's

@@ -75,7 +75,7 @@ So the nested Laplace approximation does the obvious thing:
 
 This is the integrated nested Laplace approximation (INLA; Rue, Martino &
 Chopin 2009) with an importance-sampling correction (Berild et al. 2022),
-adapted to pycream2's structure.
+adapted to discotau's structure.
 
 ## Using it
 
@@ -100,7 +100,7 @@ adapted to pycream2's structure.
 
 ## How it works, in detail
 
-The code is `pycream2/nested_laplace.py`. Write $\theta$ for the gridded
+The code is `discotau/nested_laplace.py`. Write $\theta$ for the gridded
 parameters and $z_r$ for the remaining nonlinear ones (the linear ones are
 already integrated out, `marginalise_linear`,
 [performance_improvements.md](performance_improvements.md)). At each grid point,

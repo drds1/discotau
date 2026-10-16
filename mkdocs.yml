@@ -1,8 +1,8 @@
-site_name: pycream2
+site_name: discotau
 site_description: Bayesian AGN continuum reverberation mapping with JAX and NumPyro, the successor to CREAM.
-site_url: https://drds1.github.io/pycream2/
-repo_url: https://github.com/drds1/pycream2
-repo_name: drds1/pycream2
+site_url: https://drds1.github.io/discotau/
+repo_url: https://github.com/drds1/discotau
+repo_name: drds1/discotau
 edit_uri: edit/main/docs/
 copyright: Copyright &copy; David Starkey. MIT licence.
 

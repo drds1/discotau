@@ -5,7 +5,7 @@ name: Extended tests
 # slow to run on every change: the slow, MCMC-based recovery tests on the other
 # supported Python versions, and synthetic-data injection-recovery fits
 # (scripts/smoke_test.py) over several random seeds, whose reports are uploaded
-# as artifacts. Synthetic data only: this tests pycream2 itself.
+# as artifacts. Synthetic data only: this tests discotau itself.
 on:
   workflow_dispatch:
     inputs:

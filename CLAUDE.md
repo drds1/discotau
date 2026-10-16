@@ -4,22 +4,27 @@ Context for Claude (or any future contributor) picking this repo back up.
 
 ## What this is
 
-`pycream2`: a JAX + NumPyro package that fits multi-band AGN reverberation
+`discotau`: a JAX + NumPyro package that fits multi-band AGN reverberation
 light curves as a delayed, smoothed echo of an unobserved driving light
 curve. Built from a single detailed spec; see `README.md` for the physics
 and package layout.
 
-**Formerly `echofit`, renamed to `pycream2` (Continuum Reprocessing AGN
-MCMC) in September 2026** as the successor to the author's CREAM Fortran
-code and its `pycecream` wrapper, and published to PyPI under that name
-(`.github/workflows/publish.yml`, trusted publishing on each GitHub
-release). The `EchoFit` class and its module `pycream2/echofit.py` kept
+**Formerly `echofit`, then `pycream2` (Continuum Reprocessing AGN MCMC,
+September 2026), renamed `discotau` in October 2026** (the user found
+`pycream2` didn't roll off the tongue: "disco" for the disc, tau for the
+delay). It is the successor to the author's CREAM Fortran code and its
+`pycecream` wrapper, published to PyPI (`.github/workflows/publish.yml`,
+trusted publishing on each GitHub release). **`import pycream2` still works**:
+`pycream2/` is a deprecated alias package that maps every `pycream2.<module>`
+onto the same `discotau.<module>` object (so monkeypatching, decision #5,
+works through either name) and warns (`tests/test_pycream2_alias.py`). The
+untracked paper scripts in `experiments/` still import `pycream2` through it. The `EchoFit` class and its module `discotau/echofit.py` kept
 their old names deliberately, to keep the user-facing API unchanged; don't
 treat that as a missed rename. Published work should cite Starkey, Horne &
-Villforth (2016): keep `CITATION.cff` and README's "Citing pycream2"
+Villforth (2016): keep `CITATION.cff` and README's "Citing discotau"
 section in step with each other. The version lives in `pyproject.toml`
 and `CITATION.cff` only (`tests/test_version_consistency.py` checks they
-match; `pycream2.__version__` reads the installed metadata);
+match; `discotau.__version__` reads the installed metadata);
 `docs/releasing.md` is the release procedure.
 
 ## Key design decisions (don't relitigate without reason)
@@ -70,7 +75,7 @@ match; `pycream2.__version__` reads the installed metadata);
    array. `transfer_coeffs`/`compute_echo`/plotting never assume the skew-
    normal specifically. To actually swap it at runtime (e.g. for a quick
    experiment, without editing `forward_model.py`), reassign
-   `pycream2.model.response_function`, e.g. `import pycream2.model as model;
+   `discotau.model.response_function`, e.g. `import discotau.model as model;
    model.response_function = my_fn`. This is the *only* place that needs
    patching: `echofit.py`'s plotting code reads it via `model.response_function`
    (attribute access on the module, evaluated at call time) rather than its
@@ -123,10 +128,10 @@ match; `pycream2.__version__` reads the installed metadata);
    add another free-form response family, check its gradient w.r.t.
    whatever parameter NUTS samples before trusting a fit that used it.
 
-8. **`thin_disk_response` and `pycream2/responses.py` are a second
+8. **`thin_disk_response` and `discotau/responses.py` are a second
    `lag_mode="physical"` response family, not a new mechanism.** They plug
    into the *existing* swap point from decision #5
-   (`pycream2.model.response_function = ...`) -- `pycream2/responses.py` is
+   (`discotau.model.response_function = ...`) -- `discotau/responses.py` is
    only a small registry (`register_response`/`get_response`) for
    discoverability, it does not change how a response actually gets wired
    into a fit. `thin_disk_response` follows Starkey, Horne & Villforth
@@ -719,7 +724,7 @@ match; `pycream2.__version__` reads the installed metadata);
     log-posterior's gradient at every step, which is the standard, well-established reason HMC/NUTS-family
     samplers need far fewer posterior evaluations than Metropolis-Hastings-family ones in a correlated,
     moderate-to-high-dimensional posterior like this one's (tens of driver Fourier coefficients alone). No
-    head-to-head `pycream2`-vs-`pycecream` wall-clock benchmark has been run; the comparison above is of the
+    head-to-head `discotau`-vs-`pycecream` wall-clock benchmark has been run; the comparison above is of the
     two mechanisms, verified against the Fortran source, not a benchmark of the two actual codebases.
 
 18. **Per-light-curve error rescaling (`fit_error_model`) is a direct, checked adaptation of the author's
@@ -728,7 +733,7 @@ match; `pycream2.__version__` reads the installed metadata);
     `docs/mcmc_implementation.md`'s comparison section).** Confirmed directly at `cream_f90.f90:4284`:
     `ernew2 = (er(it)*fnow)**2 + varnow`, i.e. the reported error is treated as only approximately correct
     and combined with a multiplicative rescale (`fnow`) and an additive jitter variance (`varnow`), both
-    themselves fitted nuisance parameters. `pycream2` previously had no equivalent: `model.py`'s likelihood
+    themselves fitted nuisance parameters. `discotau` previously had no equivalent: `model.py`'s likelihood
     used `d["yerr"]` verbatim (`dist.Normal(y_pred, d["yerr"])`), which silently assumes every quoted
     uncertainty is exactly right -- a real risk on actual (not synthetic) data, where an overconfident
     likelihood from underestimated errors makes everything else (the BOF, the other posteriors) look more
@@ -810,7 +815,7 @@ match; `pycream2.__version__` reads the installed metadata);
     identical result.** Prompted by a direct question about porting the CREAM Fortran code's `itaumax`
     early cut-off (checked in `cream_f90.f90`: it stops the real-space `(n_t, n_tau)` convolution
     lookback at the first lag where `psigrid` returns to zero after being positive). Measured before
-    deciding, not assumed: in `pycream2` the lag grid only enters via `transfer_coeffs`, and its cost was
+    deciding, not assumed: in `discotau` the lag grid only enters via `transfer_coeffs`, and its cost was
     almost entirely re-evaluating `cos`/`sin` of the fixed `(n_freq, n_tau)` phase matrix, per band, on
     every step, not the length of the lookback. `tau_grid`, `freqs` and each light curve's observation
     times never change during a fit, so `EchoFit._model_kwargs()` now precomputes the trapezoid-weighted
@@ -938,10 +943,10 @@ match; `pycream2.__version__` reads the installed metadata);
       flattened coordinates accordingly.)
     - **Causal smoothing and the exact lamppost delay (`docs/cream_response_comparison.md`, a direct
       comparison with CREAM's own `tfbx`, compiled from `cream_f90.f90` by
-      `scripts/compare_cream_response.py`).** The user noticed pycream2's responses were non-zero at
+      `scripts/compare_cream_response.py`).** The user noticed discotau's responses were non-zero at
       tau = 0 while Starkey+2016's all started at zero. Found: CREAM hard-codes `psi(1) = 0.0` (and
-      normalises to the peak); with CREAM's smoothing and delay pycream2 reproduces CREAM's shapes
-      (mean/median delays within ~4%); pycream2's Gaussian-in-tau smoothing (0.1 r_Wien ~ 0.5 d) spread
+      normalises to the peak); with CREAM's smoothing and delay discotau reproduces CREAM's shapes
+      (mean/median delays within ~4%); discotau's Gaussian-in-tau smoothing (0.1 r_Wien ~ 0.5 d) spread
       the near-vertical onset across tau = 0 and peaked there for inclined discs. Now: the default
       smoothing is a 5% Gaussian in ln tau (`smoothing_log`, `DEFAULT_SMOOTHING_LOG`), causal by
       construction (the Gaussian in tau remains via `smoothing_days`/`smoothing_frac`); and the delay
@@ -1016,7 +1021,7 @@ match; `pycream2.__version__` reads the installed metadata);
       search cannot backtrack, so the restart aborted with a NaN (seen on NGC 5548 and in the extra-components
       tests). The objective now returns `_NONFINITE_POTENTIAL` (1e10) with a zero gradient there.
 
-24. **Disc SED, luminosity distance and H_0 (`pycream2/disc_sed.py`, `EchoFit(redshift=..., flux_unit=...,
+24. **Disc SED, luminosity distance and H_0 (`discotau/disc_sed.py`, `EchoFit(redshift=..., flux_unit=...,
     ebv_galactic=..., sed_analysis=True)`, October 2026, a direct request; full write-up `docs/disc_sed.md`,
     figure from `scripts/plot_disc_sed_example.py`).** Cackett, Horne & Winkler (2007)'s test: the delays fix
     T(r) in light-days, so the model disc's flux depends only on D_L; with z, that gives H_0. Opt-in, run at the
@@ -1063,7 +1068,7 @@ match; `pycream2.__version__` reads the installed metadata);
       paper scripts (`experiments/`, untracked) pin `include_irradiation=False` so their documented numbers
       stay reproducible.
 
-26. **Rimmed and rippled discs (`pycream2/rippled_disc.py`; Starkey, Huang, Horne & Lin 2023, MNRAS 519,
+26. **Rimmed and rippled discs (`discotau/rippled_disc.py`; Starkey, Huang, Horne & Lin 2023, MNRAS 519,
     2754; October 2026, a direct request, with tests on synthetic data, docs `docs/rippled_disc.md`, figures
     from `scripts/plot_rippled_disc.py` and the two animations, rim and ripples, from
     `scripts/animate_rippled_disc.py [--model ripples]`, both a direct request).** The paper's
@@ -1109,7 +1114,7 @@ match; `pycream2.__version__` reads the installed metadata);
     difference). `synthetic.generate_synthetic_dataset` draws its truth on a baseline-length Fourier grid, so
     the existing recovery tests could never have caught this. Every earlier fit used the old grid.
 
-28. **`EchoFit.nested_laplace()` (`pycream2/nested_laplace.py`): a nested Laplace approximation with an
+28. **`EchoFit.nested_laplace()` (`discotau/nested_laplace.py`): a nested Laplace approximation with an
     importance-sampling correction, the fast solve that survives ridges and multiple modes, and since 8
     October 2026 what `optimise()` runs by default (October 2026, a direct request: "I want the speed but not
     compromise the accuracy"; literature search first, then INLA chosen; then "maybe we should replace
@@ -1438,7 +1443,7 @@ just skips the `poetry.lock` version pinning.
 poetry install --extras dev
 poetry run pytest             # full suite, ~15 min (see decision #16 for
                                # why -- pytest -m "not slow" for ~2 min)
-poetry run pytest --cov=pycream2 --cov-report=term-missing  # + coverage
+poetry run pytest --cov=discotau --cov-report=term-missing  # + coverage
 poetry run pre-commit install  # one-time: run the fast subset on every commit
 poetry run python scripts/smoke_test.py  # quick visual check: fit + save
                                           # plots to smoke_test_output/report.html (~30-50s)
@@ -1458,7 +1463,7 @@ poetry install --with docs && poetry run mkdocs serve  # docs site preview at
 The development laptop has 2 physical cores and 8 GB of memory, so long fitting jobs (real-data
 fits, synthetic injection-recovery sets, PSIS checks) run on **Kaggle Notebooks** (free, no payment
 details) by default. Keep the laptop for quick checks, the test suite, figures, and anything that
-needs library code not yet pushed: Kaggle installs pycream2 from GitHub at `origin/main`.
+needs library code not yet pushed: Kaggle installs discotau from GitHub at `origin/main`.
 
 - The tooling lives in `experiments/ngc5548_paper/kaggle/` (untracked, like the rest of `experiments/`; see its
   README). `build.py` turns a named batch of commands into a self-contained private notebook;
@@ -1469,7 +1474,7 @@ needs library code not yet pushed: Kaggle installs pycream2 from GitHub at `orig
 - Sessions are capped at 12 hours each; a run's setup costs about a minute.
 - Google Colab's free tier is the fallback (`build.py <batch> --colab`), but it isn't a background
   runner.
-- **GitHub Actions is for testing pycream2 only** (`.github/workflows/extended-tests.yml`: slow
+- **GitHub Actions is for testing discotau only** (`.github/workflows/extended-tests.yml`: slow
   recovery tests, synthetic recovery fits). GitHub's terms forbid Actions use "unrelated to the
   production, testing, deployment, or publication of the software project", and suspension would
   take the repository and PyPI publishing with it. Never use paid runners or anything needing a card.

@@ -15,8 +15,8 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
-from pycream2 import EchoFit
-from pycream2.synthetic import generate_synthetic_dataset, with_disc_fluxes
+from discotau import EchoFit
+from discotau.synthetic import generate_synthetic_dataset, with_disc_fluxes
 
 OUT = Path(__file__).resolve().parents[1] / "docs" / "images" / "disc_sed_example.png"
 REDSHIFT, EBV = 0.03, 0.05

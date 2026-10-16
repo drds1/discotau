@@ -1,6 +1,6 @@
 # How the MCMC inference works
 
-`pycream2` fits every parameter jointly with NumPyro's **NUTS** (No-U-Turn
+`discotau` fits every parameter jointly with NumPyro's **NUTS** (No-U-Turn
 Sampler), a self-tuning variant of Hamiltonian Monte Carlo (HMC), run
 through JAX. This document works through what that actually means
 mechanically, what `dense_mass=True` (CLAUDE.md decision #17) changes and
@@ -85,13 +85,13 @@ like real mass does (a heavier object moves less for the same kick). This
 is the **mass matrix**, and NUTS's momentum-sampling and kinetic-energy
 term (`p^T M^-1 p / 2`) both depend on it directly.
 
-- **Diagonal mass matrix** (NumPyro's default, and `pycream2`'s until
+- **Diagonal mass matrix** (NumPyro's default, and `discotau`'s until
   decision #21; now `dense_mass=False`): one independent scale per
   parameter, estimated from each parameter's own variance during warmup.
   This corrects for parameters being on very different numeric scales
   (`inclination` in tens of degrees vs. `tau_drw` in tens of days), but it
   can only stretch/shrink along the existing coordinate axes.
-- **Dense mass matrix** (`dense_mass=True`, `pycream2`'s default): the *full* covariance matrix
+- **Dense mass matrix** (`dense_mass=True`, `discotau`'s default): the *full* covariance matrix
   across all parameters, estimated during warmup. This can also *rotate*
   the implied step directions to align with correlations between
   parameters, not just rescale each one independently.
@@ -284,7 +284,7 @@ parameters at typical settings), on top of the handful of physical
 parameters.
 
 **What still hasn't been done**: a head-to-head wall-clock comparison
-between `pycream2` and `pycecream` fitting the same real dataset. That
+between `discotau` and `pycecream` fitting the same real dataset. That
 would need `pycecream` actually installed and run, which is separate work
 from reading its source; the claims above are about the two *mechanisms*,
 verified directly against `cream_f90.f90`, not a benchmark of the two

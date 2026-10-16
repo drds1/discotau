@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pycream2.synthetic import generate_synthetic_dataset
+from discotau.synthetic import generate_synthetic_dataset
 
 
 def main():
