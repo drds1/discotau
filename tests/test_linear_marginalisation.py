@@ -135,6 +135,7 @@ def test_marginalised_model_has_no_linear_sample_sites():
     assert {"S_g", "S_i", "S_driver", "log_mdot", "sigma_drw"} <= sampled
 
 
+@pytest.mark.fit
 @pytest.mark.slow
 def test_marginalised_fit_matches_sampled_fit():
     """Same data, both ways: the nonlinear posterior and the posterior-mean
@@ -173,6 +174,7 @@ def test_marginalised_fit_matches_sampled_fit():
     assert plt_fig is not None
 
 
+@pytest.mark.fit
 def test_marginalise_linear_persists_across_resume_and_fills_linear_sites(tmp_path):
     """marginalise_linear changes which sites exist, so (like fixed_params/
     fit_error_model/drw_prior before it) it must survive the checkpointed
@@ -190,6 +192,7 @@ def test_marginalise_linear_persists_across_resume_and_fills_linear_sites(tmp_pa
     assert ef2.samples["S"].shape[0] == 15
 
 
+@pytest.mark.fit
 def test_in_memory_marginalised_fit_fills_linear_sites_per_chain():
     ef = _small_echofit(marginalise_linear=True)
     ef.fit(rng_seed=0, num_warmup=5, num_samples=6, num_chains=2, chain_method="sequential", progress_bar=False)
@@ -245,6 +248,7 @@ def test_laplace_curvature_keeps_a_merely_anharmonic_direction():
     np.testing.assert_allclose(corrected, [1.0, 1.0])
 
 
+@pytest.mark.fit
 def test_optimise_restarts_are_polished_and_compared():
     """optimise()'s multi-start bookkeeping: every restart is polished to its
     own optimum and measured against the best. The "data" here are pure noise,
@@ -268,6 +272,7 @@ def test_optimise_restarts_are_polished_and_compared():
     assert ef.plot_optimise_restarts() is not None
 
 
+@pytest.mark.fit
 def test_optimise_fills_samples_and_can_seed_nuts(tmp_path):
     """EchoFit.optimise(): the direct (no-MCMC) solve fills everything the
     plots read, and fit(init_from_optimum=True) can start NUTS at its peak,
@@ -296,6 +301,7 @@ def test_optimise_fills_samples_and_can_seed_nuts(tmp_path):
         _small_echofit().fit(num_warmup=2, num_samples=2, progress_bar=False, init_from_optimum=True)
 
 
+@pytest.mark.fit
 @pytest.mark.slow
 def test_optimise_laplace_matches_nuts():
     """The direct solve's Laplace posterior agrees with a full NUTS run on

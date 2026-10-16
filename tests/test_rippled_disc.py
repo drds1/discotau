@@ -157,6 +157,7 @@ def test_registered_response():
     assert get_response("rippled_disc") is rippled_disc_response
 
 
+@pytest.mark.fit
 @pytest.mark.slow
 def test_rimmed_disc_recovery_and_flat_disc_bias(monkeypatch):
     """Light curves from the NGC 5548 rim: the rimmed model (geometry fixed at the

@@ -166,6 +166,7 @@ def test_background_order_must_not_be_negative():
         EchoFit(M_BH=1e8).add_lightcurve("g", 4770.0, [0.0, 1.0], [1.0, 2.0], [0.1, 0.1], background_order=-1)
 
 
+@pytest.mark.fit
 def test_extra_components_persist_across_resume(tmp_path):
     ef = _small_echofit(diffuse_continuum=True, background_order=2, driver_background=1,
                         title="extras_resume", output_dir=str(tmp_path))
@@ -178,6 +179,7 @@ def test_extra_components_persist_across_resume(tmp_path):
     assert resumed.samples["bg_g"].shape == (6, 2)
 
 
+@pytest.mark.fit
 @pytest.mark.slow
 def test_optimise_recovers_injected_diffuse_continuum_and_backgrounds():
     """End to end: synthetic light curves with a diffuse-continuum component in

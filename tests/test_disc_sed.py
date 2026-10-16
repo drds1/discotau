@@ -183,6 +183,7 @@ def _small_fit(**kwargs):
     return ef
 
 
+@pytest.mark.fit
 def test_runs_after_optimise_and_appears_in_the_report(tmp_path):
     from discotau import reporting
 
@@ -196,6 +197,7 @@ def test_runs_after_optimise_and_appears_in_the_report(tmp_path):
     assert "luminosity distance" in html and (tmp_path / "disc_sed.png").exists()
 
 
+@pytest.mark.fit
 def test_a_failure_only_warns_and_keeps_the_fit():
     ef = _small_fit(sed_options={"host_band": "no_such_band"})
     with pytest.warns(UserWarning, match="disc SED analysis failed"):
@@ -203,6 +205,7 @@ def test_a_failure_only_warns_and_keeps_the_fit():
     assert ef.samples is not None and ef.disc_sed is None
 
 
+@pytest.mark.fit
 def test_sed_settings_persist_across_resume(tmp_path):
     options = {"fit_intrinsic_ebv": True, "distance_method": "flux_flux"}
     ef = _small_fit(flux_unit="f_lambda", flux_scale=1e-15, ebv_galactic=0.03,

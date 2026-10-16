@@ -31,6 +31,7 @@ def _build_echofit(data, **kwargs):
     return ef
 
 
+@pytest.mark.fit
 def test_title_run_writes_expected_outputs(tmp_path):
     data = _make_synthetic()
     ef = _build_echofit(data, title="unit_test_agn", output_dir=str(tmp_path))
@@ -51,6 +52,7 @@ def test_title_run_writes_expected_outputs(tmp_path):
     assert len(ef.samples["log_mdot"]) == 20
 
 
+@pytest.mark.fit
 @pytest.mark.slow
 def test_resume_continues_an_interrupted_fit(tmp_path, monkeypatch):
     data = _make_synthetic()
@@ -107,6 +109,7 @@ def test_resume_continues_an_interrupted_fit(tmp_path, monkeypatch):
     )
 
 
+@pytest.mark.fit
 @pytest.mark.slow
 def test_report_every_refreshes_report_mid_fit(tmp_path, monkeypatch):
     """report_every should write report.html (and its PNGs) at least once
@@ -141,6 +144,7 @@ def test_report_every_refreshes_report_mid_fit(tmp_path, monkeypatch):
     assert len(ef.samples["log_mdot"]) == 40
 
 
+@pytest.mark.fit
 @pytest.mark.slow
 def test_resume_of_already_complete_run_is_a_no_op(tmp_path):
     """Regression test: resuming a run that already reached its target

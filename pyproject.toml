@@ -86,6 +86,7 @@ include = ["discotau*", "pycream2*"]  # pycream2: the deprecated alias of the ol
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
+    "fit: runs NUTS or a direct solve (optimise, nested_laplace); excluded from the quick tier CI runs on every push (`pytest -m \"not fit\"`), run by hand with `pytest -m fit`. tests/conftest.py fails any unmarked test that fits.",
     "slow: full/multi-chain MCMC recovery tests -- excluded from the pre-commit hook's quick pass (`pytest -m \"not slow\"`), run in full by CI and `poetry run pytest` with no marker filter.",
 ]
 

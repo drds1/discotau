@@ -28,6 +28,7 @@ def test_physical_band_without_M_BH_raises():
         ef.fit(num_warmup=5, num_samples=5, progress_bar=False)
 
 
+@pytest.mark.fit
 def test_free_band_without_driver_warns():
     data = generate_free_lag_dataset(
         lines={"line_a": 8.0}, n_obs_per_line=15, n_freq=6, n_tau=40,
@@ -41,6 +42,7 @@ def test_free_band_without_driver_warns():
         ef.fit(num_warmup=5, num_samples=5, progress_bar=False)
 
 
+@pytest.mark.fit
 def test_free_band_with_driver_does_not_warn():
     data = generate_free_lag_dataset(
         lines={"line_a": 8.0}, n_obs_per_line=15, n_obs_driver=20, n_freq=6, n_tau=40,
@@ -56,6 +58,7 @@ def test_free_band_with_driver_does_not_warn():
         ef.fit(num_warmup=5, num_samples=5, progress_bar=False)
 
 
+@pytest.mark.fit
 @pytest.mark.slow
 def test_free_lag_recovery_with_driver_anchor():
     """The real payoff: with a driver light curve registered, a multi-line

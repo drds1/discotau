@@ -68,6 +68,7 @@ def _fit_synthetic(seed: int, drw_prior: bool = False):
     return ef, data
 
 
+@pytest.mark.fit
 @pytest.mark.slow
 def test_mcmc_recovers_synthetic_truth():
     # drw_prior=True: this test specifically checks tau_drw recovery/

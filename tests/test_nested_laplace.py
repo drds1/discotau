@@ -47,6 +47,7 @@ def _exact_marginal_of_a(a):
     return dens / np.trapezoid(dens, a) if hasattr(np, "trapezoid") else dens / np.trapz(dens, a)
 
 
+@pytest.mark.fit
 def test_nested_laplace_recovers_a_bimodal_marginal_exactly():
     kwargs = dict(y_b=Y_B)
     info = initialize_model(jax.random.PRNGKey(0), _toy, model_kwargs=kwargs)
@@ -75,6 +76,7 @@ def test_nested_laplace_recovers_a_bimodal_marginal_exactly():
     assert np.std(a_draws) > 1.0
 
 
+@pytest.mark.fit
 def test_echofit_nested_laplace_end_to_end():
     data = generate_synthetic_dataset(bands={"g": 4770.0, "i": 7625.0}, M_BH=1.0e8, n_obs_per_band=30,
                                       n_freq=10, n_tau=60, noise_level=0.03, seed=3)
@@ -110,6 +112,7 @@ def _narrow_and_broad():
     numpyro.sample("obs_b", dist.Normal(b, 0.5), obs=np.array([0.3, -0.2]))
 
 
+@pytest.mark.fit
 def test_nested_laplace_keeps_a_narrow_mode_beside_a_broad_one():
     from numpyro.infer import init_to_value
     from scipy.stats import norm
@@ -131,6 +134,7 @@ def test_nested_laplace_keeps_a_narrow_mode_beside_a_broad_one():
     assert result["k_hat"] < 0.7
 
 
+@pytest.mark.fit
 def test_plot_landscape_and_report_section(tmp_path):
     import matplotlib
 
@@ -180,6 +184,7 @@ def test_fd_hessian_raises_a_clear_error_on_a_non_finite_gradient():
         nested_laplace.fd_hessian(lambda z: np.array([z[0], np.nan]), np.zeros(2))
 
 
+@pytest.mark.fit
 def test_nested_laplace_survives_grid_points_with_a_non_finite_gradient(monkeypatch):
     # LAPACK's response to a NaN matrix depends on the build: Linux's (Kaggle)
     # raises "Eigenvalues did not converge", macOS's can return NaNs silently.

@@ -182,6 +182,7 @@ def test_registry_supports_custom_registration():
         del _REGISTRY["my_response"]
 
 
+@pytest.mark.fit
 def test_thin_disk_response_is_usable_via_the_existing_swap_mechanism():
     """thin_disk_response matches the same (tau_grid, log_mdot, wavelength,
     inclination, M_BH) contract as response_function, so it plugs into the

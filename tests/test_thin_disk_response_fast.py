@@ -159,6 +159,7 @@ def test_table_and_fast_wrapper_agree():
     assert fast.table is not None
 
 
+@pytest.mark.fit
 def test_fast_response_is_usable_via_the_existing_swap_mechanism():
     """Matches the same (tau_grid, log_mdot, wavelength, inclination, M_BH)
     contract as response_function/thin_disk_response, so it plugs into the

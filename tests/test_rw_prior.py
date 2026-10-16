@@ -28,6 +28,7 @@ def _build(data, **kwargs):
     return ef
 
 
+@pytest.mark.fit
 def test_rw_prior_is_default_no_tau_drw_site():
     ef = _build(_dataset())  # drw_prior not passed -> False
     assert ef.drw_prior is False
@@ -37,6 +38,7 @@ def test_rw_prior_is_default_no_tau_drw_site():
     assert np.all(np.isfinite(ef.samples["sigma_drw"]))
 
 
+@pytest.mark.fit
 def test_drw_prior_true_restores_tau_drw_site():
     ef = _build(_dataset(), drw_prior=True)
     ef.fit(num_warmup=5, num_samples=5, progress_bar=False)
@@ -50,12 +52,14 @@ def test_fixing_tau_drw_without_drw_prior_raises():
         ef.fit(num_warmup=5, num_samples=5, progress_bar=False)
 
 
+@pytest.mark.fit
 def test_fixing_tau_drw_works_with_drw_prior_true():
     ef = _build(_dataset(), drw_prior=True, fixed_params={"tau_drw": 20.0})
     ef.fit(num_warmup=5, num_samples=5, progress_bar=False)
     assert np.all(ef.samples["tau_drw"] == 20.0)
 
 
+@pytest.mark.fit
 def test_plot_power_spectrum_does_not_crash_in_rw_mode():
     ef = _build(_dataset())
     ef.fit(num_warmup=5, num_samples=5, progress_bar=False)
@@ -63,6 +67,7 @@ def test_plot_power_spectrum_does_not_crash_in_rw_mode():
     assert fig is not None
 
 
+@pytest.mark.fit
 def test_plot_power_spectrum_does_not_crash_in_drw_mode():
     ef = _build(_dataset(), drw_prior=True)
     ef.fit(num_warmup=5, num_samples=5, progress_bar=False)
@@ -70,6 +75,7 @@ def test_plot_power_spectrum_does_not_crash_in_drw_mode():
     assert fig is not None
 
 
+@pytest.mark.fit
 def test_drw_prior_persists_across_resume(tmp_path):
     """drw_prior must survive the checkpointed save/resume round trip --
     the same class of bug decision #15/#18 hit with fixed_params/
@@ -89,6 +95,7 @@ def test_drw_prior_persists_across_resume(tmp_path):
     assert "tau_drw" in ef2.samples
 
 
+@pytest.mark.fit
 @pytest.mark.slow
 def test_rw_prior_recovers_log_mdot_on_synthetic_data():
     """Same recovery-quality bar as test_recovery.py's DRW check (decision

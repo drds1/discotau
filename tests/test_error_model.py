@@ -22,6 +22,7 @@ def _dataset():
     )
 
 
+@pytest.mark.fit
 def test_error_model_off_by_default_no_new_sites():
     data = _dataset()
     ef = EchoFit(M_BH=1.0e8)
@@ -34,6 +35,7 @@ def test_error_model_off_by_default_no_new_sites():
     assert "sigma_jitter_g" not in ef.samples
 
 
+@pytest.mark.fit
 def test_error_model_on_for_one_band_adds_only_that_bands_sites():
     data = _dataset()
     ef = EchoFit(M_BH=1.0e8)
@@ -56,6 +58,7 @@ def test_error_model_on_for_one_band_adds_only_that_bands_sites():
     assert np.all(np.asarray(ef.samples[f"sigma_jitter_{on_band}"]) >= 0)
 
 
+@pytest.mark.fit
 def test_error_model_can_be_fixed_via_fixed_params():
     data = _dataset()
     ef = EchoFit(
@@ -87,6 +90,7 @@ def test_error_model_unknown_fixed_key_still_validated():
         ef.fit(num_warmup=5, num_samples=5, progress_bar=False)
 
 
+@pytest.mark.fit
 def test_error_model_on_driver_lightcurve():
     data = generate_free_lag_dataset(
         lines={"line_a": 8.0}, n_obs_per_line=15, n_obs_driver=20,
@@ -106,6 +110,7 @@ def test_error_model_on_driver_lightcurve():
     assert "sigma_scale_line_a" not in ef.samples  # only the driver opted in
 
 
+@pytest.mark.fit
 def test_error_model_persists_across_resume(tmp_path):
     """fit_error_model must survive the checkpointed save/resume round trip
     (run_manager.save_bands_npz/save_driver_npz) -- found (and fixed) as

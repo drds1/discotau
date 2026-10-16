@@ -133,30 +133,35 @@ def _tiny_physical_fit():
     return ef, data
 
 
+@pytest.mark.fit
 def test_echofit_plot_corner_bands_covers_every_band():
     ef, _ = _tiny_physical_fit()
     fig, axes = ef.plot_corner_bands()
     assert axes.shape == (4, 4)  # S_g, C_g, S_i, C_i
 
 
+@pytest.mark.fit
 def test_echofit_plot_corner_free_lag_raises_when_no_free_lag_bands():
     ef, _ = _tiny_physical_fit()
     with pytest.raises(ValueError, match="no lag_mode"):
         ef.plot_corner_free_lag()
 
 
+@pytest.mark.fit
 def test_echofit_plot_fourier_correlation_runs():
     ef, _ = _tiny_physical_fit()
     fig, axes = ef.plot_fourier_correlation()
     assert len(axes) == 2
 
 
+@pytest.mark.fit
 def test_echofit_plot_bof_runs_since_potential_energy_is_requested_by_default():
     ef, _ = _tiny_physical_fit()
     fig, ax = ef.plot_bof()
     assert len(ax.lines) == 1
 
 
+@pytest.mark.fit
 def test_echofit_plot_bof_raises_without_potential_energy():
     ef, _ = _tiny_physical_fit()
     ef._extra_fields_by_chain = {}
@@ -164,6 +169,7 @@ def test_echofit_plot_bof_raises_without_potential_energy():
         ef.plot_bof()
 
 
+@pytest.mark.fit
 @pytest.mark.slow
 def test_report_includes_disk_and_band_corners_but_not_free_lag_for_physical_fit(tmp_path):
     from discotau import reporting
@@ -182,6 +188,7 @@ def test_report_includes_disk_and_band_corners_but_not_free_lag_for_physical_fit
     assert not (tmp_path / "corner_free_lag.png").exists()
 
 
+@pytest.mark.fit
 def test_report_includes_free_lag_corner_but_not_disk_corner_for_free_lag_only_fit(tmp_path):
     from discotau.synthetic import generate_free_lag_dataset
     from discotau.echofit import EchoFit

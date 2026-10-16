@@ -782,35 +782,31 @@ before trusting either.
 
 ## ✅ Tests and coverage
 
+The tests come in two tiers.
+
+- **Quick** (`-m "not fit"`, 147 tests, about 4 minutes): unit tests of the
+  forward model, response functions, grids, priors, the marginalisation
+  maths, saving and loading, input checks and the like. None fits a model.
+- **Fitting** (`-m fit`, 64 tests, about 10 minutes more): every test that
+  runs NUTS or a direct solve, including the synthetic recovery and
+  multi-chain convergence checks. Each pays its own JAX compilation.
+
 ```bash
-poetry run pytest                                          # full suite, ~15 min
-poetry run pytest -m "not slow"                             # skip the handful of
-                                                             # full/multi-chain MCMC
-                                                             # recovery tests, ~10 min
+poetry run pytest -m "not fit"                               # the quick tier
+poetry run pytest -m fit                                      # the fitting tier
+poetry run pytest                                             # both, ~15 min
 poetry run pytest --cov=discotau --cov-report=term-missing   # + a coverage summary
-poetry run pytest --cov=discotau --cov-report=html           # + an HTML report,
-                                                             # open htmlcov/index.html
 ```
 
-The full suite (fitting real, if small and short, NUTS chains throughout,
-not mocking the sampler) currently runs at ~90% line coverage. The `slow`
-marker (`pyproject.toml`) is on the handful of tests that fit longer
-chains, several chains at once, or a full checkpoint/resume cycle --
-`tests/test_free_lag_mode.py::test_free_lag_recovery_with_driver_anchor`
-alone (a genuine 4-chain Gelman-Rubin convergence check, see its
-docstring) is a large fraction of the full suite's runtime by itself. Even
-skipping those, `-m "not slow"` still takes ~10 minutes: almost every
-other test fits a real (if small) NUTS chain too, and each one pays its
-own one-time JAX JIT-compilation cost -- there isn't a large "genuinely
-fast" subset available without cutting down to only the handful of
-pure-unit (no-fit) tests. Coverage is weakest in `run_manager.py` and
-`synthetic.py`'s less-common code paths (default arguments, observing-gap
-handling, resume edge cases) -- add tests there first if you're looking
-for where coverage would help most; `tests/test_validation_and_utils.py`
-already covers a first pass of these found via exactly this coverage
-report, including one real bug it caught (`grid_utils.estimate_dt_min`'s
-"no usable gaps" fallback used to be unreachable dead code -- see
-CLAUDE.md).
+A test that fits must be marked `@pytest.mark.fit`. `tests/conftest.py`
+enforces it, by making any sampler or solver call fail in an unmarked test,
+so a slow test can't slip into the quick tier. The older `slow` marker
+(`pyproject.toml`) is kept on the handful of longest fitting tests.
+Coverage is weakest in `run_manager.py` and `synthetic.py`'s less-common
+code paths (default arguments, observing-gap handling, resume edge cases).
+`tests/test_validation_and_utils.py` covers a first pass of these, including
+one real bug it caught (`grid_utils.estimate_dt_min`'s "no usable gaps"
+fallback used to be unreachable, see CLAUDE.md).
 
 **Pre-commit hooks** (`.pre-commit-config.yaml`) run basic file hygiene
 before every commit (trailing whitespace, large-file checks, valid
@@ -825,11 +821,11 @@ After that, `git commit` runs them automatically; `git commit --no-verify`
 skips them for a single commit if you need to (e.g. a WIP commit on a
 branch nobody else is using yet).
 
-**CI** (`.github/workflows/tests.yml`, GitHub Actions) runs the *full*
-suite with coverage. Its automatic triggers on pushes and pull requests are
-switched off for now, to save Actions minutes, so start it by hand
-(Actions tab, Tests, "Run workflow", or `gh workflow run tests.yml --ref
-<branch>`). Re-enabling the triggers is a one-line change in the workflow.
+**CI** (`.github/workflows/tests.yml`, GitHub Actions) runs the quick tier
+on every push to `main` and every pull request. The fitting tier runs only
+when started by hand (Actions tab, Tests, "Run workflow" with tier `full`,
+or `gh workflow run tests.yml -f tier=full --ref <branch>`), for example
+before a release or after a change to the model or solvers.
 
 ## ⏱️ Performance profiling
 

@@ -37,6 +37,7 @@ def _build_physical_echofit(data, **kwargs):
     return ef
 
 
+@pytest.mark.fit
 @pytest.mark.slow
 def test_inclination_is_sampled_via_uniform_cos_inclination():
     ef = _build_physical_echofit(_physical_dataset())
@@ -50,6 +51,7 @@ def test_inclination_is_sampled_via_uniform_cos_inclination():
     assert np.all((incl >= 0.0) & (incl <= 80.0))
 
 
+@pytest.mark.fit
 def test_fixed_inclination_skips_cos_inclination_entirely():
     ef = _build_physical_echofit(_physical_dataset(), fixed_params={"inclination": 0.0})
     ef.fit(rng_seed=0, num_warmup=10, num_samples=10, progress_bar=False)
@@ -60,6 +62,7 @@ def test_fixed_inclination_skips_cos_inclination_entirely():
     assert ef.samples["log_mdot"].std() > 0.0
 
 
+@pytest.mark.fit
 def test_fixed_free_lag_tau_and_offset():
     data = generate_free_lag_dataset(
         lines={"line_a": 8.0}, n_obs_per_line=20, n_obs_driver=25,
@@ -132,6 +135,7 @@ def test_init_strategy_disabled_for_multi_chain_fits():
     assert ef._init_strategy(num_chains=4) is None
 
 
+@pytest.mark.fit
 @pytest.mark.slow
 def test_resume_persists_and_restores_fixed_params(tmp_path):
     data = _physical_dataset()

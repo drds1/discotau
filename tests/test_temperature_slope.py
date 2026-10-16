@@ -32,6 +32,7 @@ def _echofit(**kwargs):
     return ef
 
 
+@pytest.mark.fit
 def test_temperature_slope_is_a_fitted_site(thin_disk):
     ef = _echofit()
     ef.optimise(num_samples=20, num_restarts=1, method="laplace")
@@ -41,12 +42,14 @@ def test_temperature_slope_is_a_fitted_site(thin_disk):
     assert ef.plot_lightcurve_fits() is not None
 
 
+@pytest.mark.fit
 def test_temperature_slope_can_be_fixed(thin_disk):
     ef = _echofit(fixed_params={"temperature_slope": 1.0})
     ef.optimise(num_samples=10, num_restarts=1, method="laplace")
     assert np.allclose(ef.samples["temperature_slope"], 1.0)
 
 
+@pytest.mark.fit
 def test_temperature_slope_needs_a_response_that_accepts_it():
     """The default skew-normal response has no viscous_slope argument."""
     ef = _echofit()
@@ -54,6 +57,7 @@ def test_temperature_slope_needs_a_response_that_accepts_it():
         ef.optimise(num_samples=10, num_restarts=1, method="laplace")
 
 
+@pytest.mark.fit
 def test_temperature_slope_persists_across_resume(thin_disk, tmp_path):
     ef = _echofit(title="slope_resume", output_dir=str(tmp_path))
     ef.fit(num_warmup=5, num_samples=4, checkpoint_every=2, progress_bar=False, generate_report=False)

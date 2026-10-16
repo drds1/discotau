@@ -71,6 +71,7 @@ def test_plot_bof_raises_before_fit():
         ef.plot_bof()
 
 
+@pytest.mark.fit
 def test_fit_auto_builds_grid_if_not_called_explicitly():
     data = generate_synthetic_dataset(
         M_BH=1e8, bands={"g": 4770.0}, n_obs_per_band=15, n_freq=6, n_tau=30, seed=0,
@@ -83,6 +84,7 @@ def test_fit_auto_builds_grid_if_not_called_explicitly():
     assert ef.freqs is not None and ef.tau_grid is not None
 
 
+@pytest.mark.fit
 def test_max_tree_depth_is_passed_through(monkeypatch):
     """Regression check that inference._build_kernel actually receives and
     applies max_tree_depth, not just accepts it silently."""
@@ -108,6 +110,7 @@ def test_max_tree_depth_is_passed_through(monkeypatch):
     assert seen.get("max_tree_depth") == 4
 
 
+@pytest.mark.fit
 def test_dense_mass_is_passed_through_to_nuts(monkeypatch):
     """Regression check that inference._build_kernel actually forwards
     dense_mass to NUTS -- see CLAUDE.md decision #17: with the default
@@ -138,6 +141,7 @@ def test_dense_mass_is_passed_through_to_nuts(monkeypatch):
     assert seen.get("dense_mass") is True
 
 
+@pytest.mark.fit
 def test_checkpointed_run_with_driver_persists_and_resumes(tmp_path):
     """A registered driver light curve is saved/reloaded across a
     checkpointed run + resume, and a non-default num_chains warns rather
@@ -163,6 +167,7 @@ def test_checkpointed_run_with_driver_persists_and_resumes(tmp_path):
     np.testing.assert_allclose(ef2.driver_data["t"], data["driver"]["t"])
 
 
+@pytest.mark.fit
 def test_dense_mass_persists_across_resume(tmp_path):
     """dense_mass is part of the checkpointed path's persisted fit_config
     (CLAUDE.md decision #17), same as max_tree_depth/checkpoint_every --
@@ -184,6 +189,7 @@ def test_dense_mass_persists_across_resume(tmp_path):
     assert len(ef2.samples["log_mdot"]) == 10
 
 
+@pytest.mark.fit
 def test_dense_mass_is_the_default(monkeypatch):
     """CLAUDE.md decision #21 flipped the default to a dense mass matrix
     (~17x more effective samples per second than diagonal on this model)."""
@@ -206,6 +212,7 @@ def test_dense_mass_is_the_default(monkeypatch):
     assert seen.get("dense_mass") is True
 
 
+@pytest.mark.fit
 def test_resumed_run_without_recorded_dense_mass_stays_diagonal(tmp_path):
     """A checkpoint written before dense_mass was persisted must not switch
     to the new dense default partway through its run."""
@@ -228,6 +235,7 @@ def test_resumed_run_without_recorded_dense_mass_stays_diagonal(tmp_path):
     assert ef2._fit_config.get("dense_mass", False) is False
 
 
+@pytest.mark.fit
 def test_save_chains_falls_back_gracefully_when_netcdf_write_fails(tmp_path, monkeypatch):
     """The ArviZ/netCDF write in _save_chains is documented as best-effort
     (CLAUDE.md) -- confirm the fallback actually works, not just that the
@@ -336,6 +344,7 @@ def test_estimate_dt_min_without_t_span_skips_floor():
     assert dt_min == pytest.approx(float(np.percentile([1.0, 4.0], 5.0)))
 
 
+@pytest.mark.fit
 def test_optimise_laplace_runs_four_restarts_by_default():
     # One restart missed the main mode on a high-SNR synthetic driver
     # (CLAUDE.md decision #30); the restarts also give the reproducibility check.

@@ -1,19 +1,32 @@
 name: Tests
 
-# Automatic triggers (push/pull_request) are deliberately commented out for
-# now, to avoid spending GitHub Actions minutes -- re-enable by uncommenting
-# them when ready. workflow_dispatch keeps this runnable manually (Actions
-# tab -> Tests -> "Run workflow") in the meantime, and the job itself is
-# untouched, so re-enabling is a one-line change back.
+# Two tiers (tests/conftest.py). The quick tier, `pytest -m "not fit"`, runs on
+# every push to main and every pull request: the unit tests, which fit nothing,
+# a few minutes in all. The fitting tier (every test that runs NUTS or a direct
+# solve, marked @pytest.mark.fit, ~10 minutes more) runs only by hand: Actions
+# tab -> Tests -> "Run workflow" with tier "full", or
+# `gh workflow run tests.yml -f tier=full --ref <branch>`.
 on:
-  # push:
-  #   branches: [main]
-  # pull_request:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
+    inputs:
+      tier:
+        description: "quick (unit tests only) or full (the fitting tests too)"
+        type: choice
+        options: [quick, full]
+        default: quick
+
+# A newer push to the same branch cancels a run still in progress.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.tier == 'full' && 40 || 15 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -27,17 +40,15 @@ jobs:
       - name: Install dependencies
         run: poetry install --extras dev
 
-      # Full suite, no marker filter -- unlike the pre-commit hook's quick
-      # "not slow" pass, CI is the place the full/multi-chain MCMC recovery
-      # tests are actually meant to run (see README's "Tests and coverage").
       # MPLBACKEND=Agg avoids a headless Tk-backend crash on some machines
       # (see CLAUDE.md's rough-edges note).
       - name: Run tests with coverage
         env:
           MPLBACKEND: Agg
-        run: >
-          poetry run pytest tests/
-          --cov=discotau --cov-report=term-missing --cov-report=xml
+          TIER: ${{ inputs.tier }}
+        run: |
+          if [ "$TIER" = "full" ]; then MARKS=(); else MARKS=(-m "not fit"); fi
+          poetry run pytest tests/ "${MARKS[@]}" --cov=discotau --cov-report=term-missing --cov-report=xml
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4

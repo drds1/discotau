@@ -67,6 +67,7 @@ def _kurtosis(psi, tau_grid):
     return fourth / var ** 2
 
 
+@pytest.mark.fit
 @pytest.mark.slow
 def test_swapping_model_response_function_is_reflected_in_the_plot():
     original = model_mod.response_function

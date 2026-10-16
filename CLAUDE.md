@@ -670,11 +670,14 @@ match; `discotau.__version__` reads the installed metadata);
     a pre-commit smoke check. Large-file checks exclude
     `docs/images/fit_animation.gif` and `smoke_test_output/`, both
     intentional, regenerated-on-purpose binary assets, not accidents.
-    Tests instead run automatically via CI (`.github/workflows/tests.yml`,
-    full suite, no marker filter, every push/PR), where a few extra
-    minutes doesn't block anyone's local `git commit`; run
-    `poetry run pytest -m "not slow"` manually before pushing for that
-    feedback sooner, accepting the ~10 minutes.
+    **Superseded in October 2026 by two tiers (a direct request, "CI checks ... should be for testing
+    small things").** `@pytest.mark.fit` marks the 64 tests that run NUTS or a direct solve. CI
+    (`.github/workflows/tests.yml`) runs the other 147, `pytest -m "not fit"`, on every push to main and
+    pull request (~4 min on the laptop). The fitting tier runs only by hand (`gh workflow run tests.yml -f
+    tier=full`), and don't start it without asking the user. `tests/conftest.py` makes `MCMC.run`, the
+    Laplace solve and the nested solve fail in any unmarked test, so the split is enforced rather than
+    remembered. That guard also found the 64. The suite was run once with nothing marked, and every test
+    it stopped was a fitting test.
 
 17. **`dense_mass=True` (a NUTS kernel option, now exposed on `EchoFit.fit()`) is the single
     highest-leverage, accuracy-preserving speed lever found so far, discovered directly from
