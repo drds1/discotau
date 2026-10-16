@@ -61,7 +61,10 @@ def _build_echofit(data, drw_prior: bool = False):
 def _fit_synthetic(seed: int, drw_prior: bool = False):
     data = _make_synthetic(seed)
     ef = _build_echofit(data, drw_prior=drw_prior)
-    ef.fit(rng_seed=0, num_warmup=500, num_samples=500, num_chains=1, progress_bar=False)
+    # 1000 warmup steps: the dense mass matrix (the default since decision #21)
+    # needs more than a diagonal one to adapt (decision #17: 6% divergences at
+    # 200, 1.5% at 800); at 500 this test had 7%.
+    ef.fit(rng_seed=0, num_warmup=1000, num_samples=500, num_chains=1, progress_bar=False)
     return ef, data
 
 
