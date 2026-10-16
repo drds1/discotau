@@ -20,11 +20,11 @@ from numpy.polynomial import legendre
 from numpyro import handlers
 from scipy.stats import multivariate_normal
 
-import pycream2.model as model_module
-from pycream2 import EchoFit
-from pycream2.forward_model import legendre_background_basis, lognormal_response, mix_diffuse_continuum
-from pycream2.model import reverberation_model
-from pycream2.synthetic import generate_synthetic_dataset
+import discotau.model as model_module
+from discotau import EchoFit
+from discotau.forward_model import legendre_background_basis, lognormal_response, mix_diffuse_continuum
+from discotau.model import reverberation_model
+from discotau.synthetic import generate_synthetic_dataset
 
 _np_trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
 

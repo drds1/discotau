@@ -5,7 +5,7 @@ name: Publish to PyPI
 # Uses PyPI trusted publishing (OIDC), so no API token is stored in the repo:
 # register this repository/workflow as a trusted publisher on PyPI once
 # first (pypi.org -> your account -> Publishing -> add a pending publisher:
-# project "pycream2", owner "drds1", repository "pycream2", workflow
+# project "discotau", owner "drds1", repository "discotau", workflow
 # "publish.yml", environment "pypi").
 on:
   release:
@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/pycream2
+      url: https://pypi.org/p/discotau
     permissions:
       id-token: write
     steps:

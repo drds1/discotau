@@ -174,7 +174,7 @@ def tophat_response_free(tau_grid, tau_mean, width_frac: float = 0.3, edge_softn
     unidentifiable from its light curve alone (a global shift of the driver
     and an equal shift of the lag leave the data unchanged -- see
     CLAUDE.md); a fit using this response for any band should also register
-    a driver light curve (:meth:`~pycream2.echofit.EchoFit.add_driver_lightcurve`)
+    a driver light curve (:meth:`~discotau.echofit.EchoFit.add_driver_lightcurve`)
     to anchor the absolute lag scale, or tie multiple free-lag bands
     together some other way.
 
@@ -839,7 +839,7 @@ def build_thin_disk_response_table(
     *before* a fit (M_BH is fixed input anyway, per CLAUDE.md decision #3)
     and passed to :func:`build_thin_disk_response_fast` to get an
     interpolation-based response function ready to assign to
-    ``pycream2.model.response_function``.
+    ``discotau.model.response_function``.
 
     Parameters
     ----------
@@ -962,8 +962,8 @@ def build_thin_disk_response_fast(
     one-call convenience wrapper around :func:`build_thin_disk_response_table`
     + :func:`thin_disk_response_from_table`::
 
-        import pycream2.model as model
-        from pycream2.forward_model import build_thin_disk_response_fast
+        import discotau.model as model
+        from discotau.forward_model import build_thin_disk_response_fast
 
         model.response_function = build_thin_disk_response_fast(M_BH=1e8)
 

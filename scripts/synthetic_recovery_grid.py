@@ -46,7 +46,7 @@ from pathlib import Path
 
 import numpy as np
 
-# The dimensionless log_mdot in pycream2 maps onto M Mdot through the disc's
+# The dimensionless log_mdot in discotau maps onto M Mdot through the disc's
 # temperature at one light-day, T_1 = (3 G M Mdot / (8 pi sigma (1 ld)^3))^(1/4)
 # (forward_model.disk_t1_kelvin). For M_BH = 1e8 that gives
 # log10(M Mdot / Msun^2 yr^-1) = log_mdot + LOG_MMDOT_OFFSET.
@@ -101,7 +101,7 @@ def config_label(band_set: str, snr: float, cadence: float, seed: int) -> str:
 
 
 def _response():
-    from pycream2.forward_model import thin_disk_response
+    from discotau.forward_model import thin_disk_response
 
     return thin_disk_response
 
@@ -139,8 +139,8 @@ def simulate(band_set: str, snr: float, cadence: float, seed: int) -> dict:
 def make_echofit(bands: dict, frequency_grid: str = "main", marginalise_linear: bool = False):
     """``frequency_grid``: "main" (PERIOD_MAX, N_FREQ), "auto" (build_grid()'s
     default) or "baseline" (longest period = the data's baseline)."""
-    import pycream2.model as model
-    from pycream2 import EchoFit
+    import discotau.model as model
+    from discotau import EchoFit
 
     model.response_function = _response()
     ef = EchoFit(M_BH=M_BH, marginalise_linear=marginalise_linear)

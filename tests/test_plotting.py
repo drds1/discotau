@@ -13,7 +13,7 @@ import warnings
 import numpy as np
 import pytest
 
-from pycream2 import plotting
+from discotau import plotting
 
 
 def test_wavelength_to_colour_classifies_regimes_correctly():
@@ -118,8 +118,8 @@ def test_plot_bof_accepts_single_chain_1d_array():
 
 
 def _tiny_physical_fit():
-    from pycream2.synthetic import generate_synthetic_dataset
-    from pycream2.echofit import EchoFit
+    from discotau.synthetic import generate_synthetic_dataset
+    from discotau.echofit import EchoFit
 
     data = generate_synthetic_dataset(
         M_BH=1.0e8, bands={"g": 4770.0, "i": 7625.0}, n_obs_per_band=15,
@@ -166,7 +166,7 @@ def test_echofit_plot_bof_raises_without_potential_energy():
 
 @pytest.mark.slow
 def test_report_includes_disk_and_band_corners_but_not_free_lag_for_physical_fit(tmp_path):
-    from pycream2 import reporting
+    from discotau import reporting
 
     ef, data = _tiny_physical_fit()
     path = reporting.generate_report(ef, tmp_path, truth=data["truth"])
@@ -183,9 +183,9 @@ def test_report_includes_disk_and_band_corners_but_not_free_lag_for_physical_fit
 
 
 def test_report_includes_free_lag_corner_but_not_disk_corner_for_free_lag_only_fit(tmp_path):
-    from pycream2.synthetic import generate_free_lag_dataset
-    from pycream2.echofit import EchoFit
-    from pycream2 import reporting
+    from discotau.synthetic import generate_free_lag_dataset
+    from discotau.echofit import EchoFit
+    from discotau import reporting
 
     data = generate_free_lag_dataset(
         lines={"line_a": 8.0}, n_obs_per_line=15, n_obs_driver=20,

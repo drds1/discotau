@@ -17,7 +17,7 @@ on-disk run outputs::
 
 Output root resolution (highest to lowest priority):
     1. the ``output_dir`` argument passed explicitly to ``EchoFit``
-    2. the ``PYCREAM2_OUTPUT_DIR`` environment variable
+    2. the ``DISCOTAU_OUTPUT_DIR`` environment variable
     3. ``./outputs`` (relative to the current working directory)
 
 Resuming only covers the sampling phase, not warmup: if a run is
@@ -38,7 +38,7 @@ from typing import Dict, Optional
 
 import numpy as np
 
-ENV_VAR = "PYCREAM2_OUTPUT_DIR"
+ENV_VAR = "DISCOTAU_OUTPUT_DIR"
 _TIMESTAMP_FMT = "%Y%m%d_%H%M%S"
 
 

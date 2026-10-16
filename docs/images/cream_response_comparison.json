@@ -12,26 +12,26 @@
      "median": 2.29999995,
      "peak": 0.949999988
     },
-    "pycream2_matched": {
+    "discotau_matched": {
      "mean": 2.7170787263625757,
      "median": 2.20000005,
      "peak": 0.800000012
     },
-    "pycream2_old_default": {
+    "discotau_old_default": {
      "mean": 2.7330116854098705,
      "median": 2.25,
      "peak": 0.949999988
     },
-    "pycream2_default": {
+    "discotau_default": {
      "mean": 2.7333901544212007,
      "median": 2.20000005,
      "peak": 0.800000012
     },
-    "pycream2_default_psi0_over_peak": 0.0,
-    "pycream2_old_psi0_over_peak": 0.8950314521789551,
+    "discotau_default_psi0_over_peak": 0.0,
+    "discotau_old_psi0_over_peak": 0.8950314521789551,
     "cream_psi1_over_peak": 0.463369966,
-    "pycream2_psi0_over_peak": 0.3394182324409485,
-    "pycream2_psi1_over_peak": 0.5956516265869141,
+    "discotau_psi0_over_peak": 0.3394182324409485,
+    "discotau_psi1_over_peak": 0.5956516265869141,
     "max_abs_diff_after_first_bin": 0.14236164049523925
    },
    "30": {
@@ -41,26 +41,26 @@
      "median": 2.0999999,
      "peak": 0.699999988
     },
-    "pycream2_matched": {
+    "discotau_matched": {
      "mean": 2.5887170498275496,
      "median": 2.0,
      "peak": 0.600000024
     },
-    "pycream2_old_default": {
+    "discotau_old_default": {
      "mean": 2.61009965987903,
      "median": 2.0,
      "peak": 0.649999976
     },
-    "pycream2_default": {
+    "discotau_default": {
      "mean": 2.6031309686462225,
      "median": 2.0,
      "peak": 0.600000024
     },
-    "pycream2_default_psi0_over_peak": 0.0,
-    "pycream2_old_psi0_over_peak": 0.9377189874649048,
+    "discotau_default_psi0_over_peak": 0.0,
+    "discotau_old_psi0_over_peak": 0.9377189874649048,
     "cream_psi1_over_peak": 0.50581342,
-    "pycream2_psi0_over_peak": 0.3518200218677521,
-    "pycream2_psi1_over_peak": 0.6187670826911926,
+    "discotau_psi0_over_peak": 0.3518200218677521,
+    "discotau_psi1_over_peak": 0.6187670826911926,
     "max_abs_diff_after_first_bin": 0.12246328549356078
    },
    "60": {
@@ -70,26 +70,26 @@
      "median": 1.64999998,
      "peak": 0.25
     },
-    "pycream2_matched": {
+    "discotau_matched": {
      "mean": 2.379179570451567,
      "median": 1.54999995,
      "peak": 0.200000003
     },
-    "pycream2_old_default": {
+    "discotau_old_default": {
      "mean": 2.4390035643239534,
      "median": 1.64999998,
      "peak": 0.0
     },
-    "pycream2_default": {
+    "discotau_default": {
      "mean": 2.39110622722793,
      "median": 1.54999995,
      "peak": 0.150000006
     },
-    "pycream2_default_psi0_over_peak": 0.0,
-    "pycream2_old_psi0_over_peak": 1.0,
+    "discotau_default_psi0_over_peak": 0.0,
+    "discotau_old_psi0_over_peak": 1.0,
     "cream_psi1_over_peak": 0.678892553,
-    "pycream2_psi0_over_peak": 0.404195100069046,
-    "pycream2_psi1_over_peak": 0.7104421854019165,
+    "discotau_psi0_over_peak": 0.404195100069046,
+    "discotau_psi1_over_peak": 0.7104421854019165,
     "max_abs_diff_after_first_bin": 0.04151141595065311
    },
    "80": {
@@ -99,26 +99,26 @@
      "median": 1.60000002,
      "peak": 0.0500000007
     },
-    "pycream2_matched": {
+    "discotau_matched": {
      "mean": 2.3420390669507416,
      "median": 1.5,
      "peak": 0.100000001
     },
-    "pycream2_old_default": {
+    "discotau_old_default": {
      "mean": 2.461837090848712,
      "median": 1.60000002,
      "peak": 0.0
     },
-    "pycream2_default": {
+    "discotau_default": {
      "mean": 2.3574690722050073,
      "median": 1.5,
      "peak": 0.0500000007
     },
-    "pycream2_default_psi0_over_peak": 0.0,
-    "pycream2_old_psi0_over_peak": 1.0,
+    "discotau_default_psi0_over_peak": 0.0,
+    "discotau_old_psi0_over_peak": 1.0,
     "cream_psi1_over_peak": 1.0,
-    "pycream2_psi0_over_peak": 0.5927530527114868,
-    "pycream2_psi1_over_peak": 0.9356014132499695,
+    "discotau_psi0_over_peak": 0.5927530527114868,
+    "discotau_psi1_over_peak": 0.9356014132499695,
     "max_abs_diff_after_first_bin": 0.06439858675003052
    }
   },
@@ -130,26 +130,26 @@
      "median": 2.30999994,
      "peak": 0.870000005
     },
-    "pycream2_matched": {
+    "discotau_matched": {
      "mean": 2.7136045752425924,
      "median": 2.21000004,
      "peak": 0.805000007
     },
-    "pycream2_old_default": {
+    "discotau_old_default": {
      "mean": 2.7333076960027327,
      "median": 2.2349999,
      "peak": 0.875
     },
-    "pycream2_default": {
+    "discotau_default": {
      "mean": 2.733421558889464,
      "median": 2.2249999,
      "peak": 0.814999998
     },
-    "pycream2_default_psi0_over_peak": 0.0,
-    "pycream2_old_psi0_over_peak": 0.9354293346405029,
+    "discotau_default_psi0_over_peak": 0.0,
+    "discotau_old_psi0_over_peak": 0.9354293346405029,
     "cream_psi1_over_peak": 0.0452656485,
-    "pycream2_psi0_over_peak": 0.0027567928191274405,
-    "pycream2_psi1_over_peak": 0.027346033602952957,
+    "discotau_psi0_over_peak": 0.0027567928191274405,
+    "discotau_psi1_over_peak": 0.027346033602952957,
     "max_abs_diff_after_first_bin": 0.2757000326799011
    },
    "30": {
@@ -159,26 +159,26 @@
      "median": 2.07500005,
      "peak": 0.725000024
     },
-    "pycream2_matched": {
+    "discotau_matched": {
      "mean": 2.5834243637265923,
      "median": 1.98000002,
      "peak": 0.574999988
     },
-    "pycream2_old_default": {
+    "discotau_old_default": {
      "mean": 2.6096981551634975,
      "median": 2.01999998,
      "peak": 0.540000021
     },
-    "pycream2_default": {
+    "discotau_default": {
      "mean": 2.601504587936009,
      "median": 1.995,
      "peak": 0.584999979
     },
-    "pycream2_default_psi0_over_peak": 0.0,
-    "pycream2_old_psi0_over_peak": 0.9740050435066223,
+    "discotau_default_psi0_over_peak": 0.0,
+    "discotau_old_psi0_over_peak": 0.9740050435066223,
     "cream_psi1_over_peak": 0.102991208,
-    "pycream2_psi0_over_peak": 0.029457852244377136,
-    "pycream2_psi1_over_peak": 0.11997917294502258,
+    "discotau_psi0_over_peak": 0.029457852244377136,
+    "discotau_psi1_over_peak": 0.11997917294502258,
     "max_abs_diff_after_first_bin": 0.25312209108813477
    },
    "60": {
@@ -188,26 +188,26 @@
      "median": 1.62,
      "peak": 0.254999995
     },
-    "pycream2_matched": {
+    "discotau_matched": {
      "mean": 2.3659614883830846,
      "median": 1.53999996,
      "peak": 0.170000002
     },
-    "pycream2_old_default": {
+    "discotau_old_default": {
      "mean": 2.435671367523595,
      "median": 1.63,
      "peak": 0.0
     },
-    "pycream2_default": {
+    "discotau_default": {
      "mean": 2.3796688652633438,
      "median": 1.54999995,
      "peak": 0.174999997
     },
-    "pycream2_default_psi0_over_peak": 0.0,
-    "pycream2_old_psi0_over_peak": 1.0,
+    "discotau_default_psi0_over_peak": 0.0,
+    "discotau_old_psi0_over_peak": 1.0,
     "cream_psi1_over_peak": 0.290046573,
-    "pycream2_psi0_over_peak": 0.22072957456111908,
-    "pycream2_psi1_over_peak": 0.4110431671142578,
+    "discotau_psi0_over_peak": 0.22072957456111908,
+    "discotau_psi1_over_peak": 0.4110431671142578,
     "max_abs_diff_after_first_bin": 0.1498475668025513
    },
    "80": {
@@ -217,26 +217,26 @@
      "median": 1.495,
      "peak": 0.0250000004
     },
-    "pycream2_matched": {
+    "discotau_matched": {
      "mean": 2.2841948271341375,
      "median": 1.41499996,
      "peak": 0.0250000004
     },
-    "pycream2_old_default": {
+    "discotau_old_default": {
      "mean": 2.42730173473864,
      "median": 1.57000005,
      "peak": 0.0
     },
-    "pycream2_default": {
+    "discotau_default": {
      "mean": 2.287189127695123,
      "median": 1.40999997,
      "peak": 0.0250000004
     },
-    "pycream2_default_psi0_over_peak": 0.0,
-    "pycream2_old_psi0_over_peak": 1.0,
+    "discotau_default_psi0_over_peak": 0.0,
+    "discotau_old_psi0_over_peak": 1.0,
     "cream_psi1_over_peak": 0.635133088,
-    "pycream2_psi0_over_peak": 0.3710477650165558,
-    "pycream2_psi1_over_peak": 0.6607335209846497,
+    "discotau_psi0_over_peak": 0.3710477650165558,
+    "discotau_psi1_over_peak": 0.6607335209846497,
     "max_abs_diff_after_first_bin": 0.03340435072140502
    }
   }

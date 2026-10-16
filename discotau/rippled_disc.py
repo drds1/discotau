@@ -30,7 +30,7 @@ This module implements the paper's model:
   ``dB_nu/dT dT/dL_LP`` times its solid angle on the observer's sky, with
   ``dT/dL_LP ~ f / (r**2 T**3)``.
 
-Differences from the paper worth knowing: the inner radius is pycream2's
+Differences from the paper worth knowing: the inner radius is discotau's
 ``3 R_s`` (the paper uses the ISCO for a spinning black hole); a surface's
 projection towards the observer is ``cos(i) - H' sin(i) cos(phi)`` (zero when it
 faces away), but occultation of one part of the disc by another (a rim hiding
@@ -46,8 +46,8 @@ which are therefore computed once, outside the gradient.
 Use it in a fit through the usual swap point::
 
     import functools
-    import pycream2.model as model
-    from pycream2.rippled_disc import rippled_disc_response, NGC5548_RIM
+    import discotau.model as model
+    from discotau.rippled_disc import rippled_disc_response, NGC5548_RIM
     model.response_function = functools.partial(rippled_disc_response, **NGC5548_RIM)
 """
 
@@ -254,7 +254,7 @@ def rippled_disc_response(
 ):
     """Causal, area-normalised response of a rimmed or rippled disc on
     ``tau_grid`` (days): the swappable response-function contract of
-    :mod:`pycream2.model` (decision #5 in CLAUDE.md).
+    :mod:`discotau.model` (decision #5 in CLAUDE.md).
 
     ``height``, ``r_ref``, ``beta``, ``ripple_*`` set ``H(r)``
     (:func:`disc_height`, light-days); ``r_out`` is the disc's outer edge
@@ -266,7 +266,7 @@ def rippled_disc_response(
     sampled parameters. ``exact_irradiation`` is as in :func:`disc_surface`.
     ``n_r``/``n_phi`` set the quadrature (the radial grid is
     refined automatically across a rim and ripples); the smoothing arguments are
-    as in :func:`pycream2.forward_model.thin_disk_response`.
+    as in :func:`discotau.forward_model.thin_disk_response`.
 
     ``tau_grid`` must extend past the longest delay that matters (about
     ``r_out (1 + sin i)``): light arriving later is dropped before normalising.

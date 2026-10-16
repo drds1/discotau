@@ -23,18 +23,18 @@ registry.
 
 Registering a response makes it look-up-able by name; it does not, on its
 own, change what a fit uses. To actually use one for "physical"-mode bands,
-assign it to ``pycream2.model.response_function`` (both the NumPyro model and
+assign it to ``discotau.model.response_function`` (both the NumPyro model and
 the plotting code look this name up dynamically, so the swap is picked up
 everywhere)::
 
-    import pycream2.model as model
-    from pycream2.responses import get_response
+    import discotau.model as model
+    from discotau.responses import get_response
 
     model.response_function = get_response("thin_disk")
 
 To add your own::
 
-    from pycream2.responses import register_response
+    from discotau.responses import register_response
 
     def my_response(tau_grid, log_mdot, wavelength, inclination, M_BH, **kw):
         ...
@@ -63,7 +63,7 @@ _REGISTRY: Dict[str, Callable] = {
     "skew_normal": response_function,
     "thin_disk": thin_disk_response,
     # Rimmed and rippled discs (Starkey, Huang, Horne & Lin 2023); flat by default,
-    # the geometry set with functools.partial (see pycream2.rippled_disc).
+    # the geometry set with functools.partial (see discotau.rippled_disc).
     "rippled_disc": rippled_disc_response,
 }
 

@@ -29,9 +29,9 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 from numpyro.infer import MCMC, NUTS
 
-from pycream2.synthetic import generate_synthetic_dataset
-from pycream2.echofit import EchoFit
-from pycream2.model import reverberation_model
+from discotau.synthetic import generate_synthetic_dataset
+from discotau.echofit import EchoFit
+from discotau.model import reverberation_model
 
 OUT_DIR = "docs/images"
 

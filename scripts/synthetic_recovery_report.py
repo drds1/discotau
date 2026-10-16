@@ -34,7 +34,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import synthetic_recovery_grid as grid  # noqa: E402
-from pycream2.plotting import wavelength_to_colour  # noqa: E402
+from discotau.plotting import wavelength_to_colour  # noqa: E402
 
 METHOD_STYLE = {"nuts": dict(ls="-", marker="o", label="NUTS"),
                 "optimise": dict(ls="--", marker="s", label="optimise()", mfc="white")}

@@ -237,12 +237,12 @@ class EchoFit:
         A name for this fit (e.g. an AGN name like ``"ngc_5548"``). If
         given, ``.fit()`` writes its outputs to
         ``<output_root>/<title>/run_<timestamp>/`` -- see
-        :func:`~pycream2.run_manager.resolve_output_root`. If omitted,
+        :func:`~discotau.run_manager.resolve_output_root`. If omitted,
         nothing is written to disk (the original, fully in-memory
         behaviour).
     output_dir : str, optional
         Override the output root directory. Only relevant when ``title``
-        is given. Otherwise resolved from the ``PYCREAM2_OUTPUT_DIR``
+        is given. Otherwise resolved from the ``DISCOTAU_OUTPUT_DIR``
         environment variable, or ``./outputs`` if that's unset too.
     drw_prior : bool, optional
         ``False`` (default): the driver's Fourier coefficients follow a
@@ -294,7 +294,7 @@ class EchoFit:
         never costs a finished fit.
     sed_options : dict, optional
         Further keyword arguments for
-        :func:`pycream2.disc_sed.disc_sed_analysis` (``fit_intrinsic_ebv``,
+        :func:`discotau.disc_sed.disc_sed_analysis` (``fit_intrinsic_ebv``,
         ``omega_m``, ``host_band``, ``lamppost_height_rs``, ``n_draws``,
         ``include_irradiation``, ``irradiation_weight``; pass
         ``include_irradiation=False`` if the fit used a viscous-only response).
@@ -498,7 +498,7 @@ class EchoFit:
             given). Useful for small, fast fits (tests, demos). Leave unset for
             the default grid, whose size follows from ``period_max``, ``f_max``
             and ``log_step``: harmonics of ``period_max`` at low frequency, then
-            log spacing (:func:`~pycream2.grid_utils.hybrid_frequency_grid`).
+            log spacing (:func:`~discotau.grid_utils.hybrid_frequency_grid`).
         n_tau : int
             Number of points on the lag grid used to evaluate/integrate psi.
         tau_max : float, optional
@@ -509,7 +509,7 @@ class EchoFit:
             Grades ``tau_grid`` towards ``tau=0`` (``tau_max * linspace(0,
             1, n_tau) ** tau_grid_power``) instead of uniform spacing, so
             short-wavelength/short-lag bands' narrow response functions
-            stay resolved -- see :func:`~pycream2.grid_utils.graded_tau_grid`
+            stay resolved -- see :func:`~discotau.grid_utils.graded_tau_grid`
             for why this matters (confirmed directly: an under-resolved
             response silently normalises to a flat, near-zero echo, not an
             error). ``1.0`` recovers the original uniform grid.
@@ -518,7 +518,7 @@ class EchoFit:
             resolve; if given, sets the upper bound ``w_max = pi / dt_min`` in
             place of ``f_max``. With ``n_freq`` and no ``dt_min``, the old
             grid's upper bound is estimated from the observation gaps
-            (5th percentile, :func:`~pycream2.grid_utils.estimate_dt_min`).
+            (5th percentile, :func:`~discotau.grid_utils.estimate_dt_min`).
         f_max : float
             Highest driver frequency, cycles per day (default 2, i.e. a
             0.5-day period). An absolute default rather than one from the
@@ -758,7 +758,7 @@ class EchoFit:
                 raise ValueError(
                     "fit_temperature_slope=True needs a response function that accepts "
                     "viscous_slope (e.g. forward_model.thin_disk_response); the active "
-                    "pycream2.model.response_function does not."
+                    "discotau.model.response_function does not."
                 )
         unknown = set(self.fixed_params) - self._valid_fixed_param_names()
         if unknown:
@@ -1425,7 +1425,7 @@ class EchoFit:
     ):
         """Posterior by a nested Laplace approximation (after INLA, Rue,
         Martino & Chopin 2009), corrected by Pareto-smoothed importance
-        sampling: see :mod:`pycream2.nested_laplace`.
+        sampling: see :mod:`discotau.nested_laplace`.
 
         ``optimise()`` fits one Gaussian at one peak. Where the data constrain
         ``log_mdot`` and inclination only weakly, their posterior is a long,
@@ -1528,7 +1528,7 @@ class EchoFit:
     def disc_sed_analysis(self, **overrides) -> dict:
         """The disc's variable and mean SED, luminosity distance and ``H_0``
         from this fit (Cackett, Horne & Winkler 2007's test): see
-        :mod:`pycream2.disc_sed`. Uses the constructor's ``redshift``,
+        :mod:`discotau.disc_sed`. Uses the constructor's ``redshift``,
         ``flux_unit``, ``flux_scale``, ``ebv_galactic`` and ``sed_options``;
         ``overrides`` replace any of them for this call. Stores the result
         in ``self.disc_sed`` (``"summary"`` and per-draw ``"draws"``) and

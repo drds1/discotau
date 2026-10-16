@@ -453,8 +453,8 @@ the `mdot**(1/3)` / `wavelength**(4/3)` scaling `lag_scaling` already uses,
 rather than recomputing the disk integral at all:
 
 ```python
-import pycream2.model as model
-from pycream2.forward_model import build_thin_disk_response_fast
+import discotau.model as model
+from discotau.forward_model import build_thin_disk_response_fast
 
 model.response_function = build_thin_disk_response_fast(M_BH=1e8)
 ```
@@ -568,9 +568,9 @@ checks for.
 ## 8. API summary
 
 ```python
-from pycream2.forward_model import thin_disk_response, build_thin_disk_response_fast
-from pycream2.responses import get_response
-import pycream2.model as model
+from discotau.forward_model import thin_disk_response, build_thin_disk_response_fast
+from discotau.responses import get_response
+import discotau.model as model
 
 # use the exact disk integral directly (default: smoothed, see section 5)
 psi = thin_disk_response(tau_grid, log_mdot, wavelength, inclination, M_BH)
@@ -596,5 +596,5 @@ docstring for the fast path's own precompute parameters (`incl_grid`,
 `reference_log_mdot`, `reference_wavelength`, `u_max_factor`, `n_u`),
 `thin_disk_response_from_table`'s for its own smoothing parameters, and
 `README.md`'s "Swapping the response function" section for how these
-relate to the default skew-normal and to `pycream2/responses.py`'s
+relate to the default skew-normal and to `discotau/responses.py`'s
 registry.

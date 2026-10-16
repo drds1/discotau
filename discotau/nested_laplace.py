@@ -5,7 +5,7 @@ nested_laplace.py
 A nested Laplace approximation (after Rue, Martino & Chopin 2009, INLA) for
 the few nonlinear parameters whose posterior is not Gaussian, with a Pareto-
 smoothed importance-sampling correction (Vehtari et al. 2024; Berild et al.
-2022's IS-INLA). Used by :meth:`pycream2.EchoFit.nested_laplace`.
+2022's IS-INLA). Used by :meth:`discotau.EchoFit.nested_laplace`.
 
 Why: ``EchoFit.optimise()`` fits one Gaussian at one peak. On weakly
 constraining data (e.g. g and i at SNR 100) the posterior of ``log_mdot`` and

@@ -1,5 +1,5 @@
 """
-Compare pycream2's thin-disc response function with the original CREAM
+Compare discotau's thin-disc response function with the original CREAM
 Fortran's (``tfbx`` in ``cream_f90.f90``) for the same disc, and write the
 figures and numbers behind ``docs/cream_response_comparison.md``.
 
@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import brentq
 
-from pycream2.forward_model import disk_t1_kelvin, thin_disk_response
+from discotau.forward_model import disk_t1_kelvin, thin_disk_response
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "docs" / "images"
@@ -93,7 +93,7 @@ def cream_psi(exe: Path, ntau: int, inclination: float) -> tuple[np.ndarray, np.
 def pycream_psi(tau: np.ndarray, inclination: float, log_mdot: float, **kwargs) -> np.ndarray:
     # Viscous-only, as CREAM is run here (irradiation temperature 0): the
     # comparison of docs/cream_response_comparison.md predates irradiation
-    # becoming pycream2's default (October 2026).
+    # becoming discotau's default (October 2026).
     kwargs.setdefault("include_irradiation", False)
     return np.asarray(thin_disk_response(jnp.asarray(tau), log_mdot, WAVELENGTH, inclination, M_BH, **kwargs))
 
@@ -122,32 +122,32 @@ def main():
                 tau, c = cream_psi(exe, ntau, inc)
                 dtau = tau[1] - tau[0]
                 # CREAM's smoothing and CREAM's delay (no lamppost height in it),
-                # for the like-for-like comparison; then pycream2's defaults, the
+                # for the like-for-like comparison; then discotau's defaults, the
                 # old one (a Gaussian in tau, 0.1 of the Wien radius, and h_x = 0 in
                 # the delay, before September 2026) and the current one (causal
                 # log-normal smoothing and the exact lamppost delay).
                 p_matched = pycream_psi(tau, inc, log_mdot, smoothing_days=dtau, delay_lamppost_height=False)
                 p_old = pycream_psi(tau, inc, log_mdot, smoothing_frac=0.1, delay_lamppost_height=False)
                 p_default = pycream_psi(tau, inc, log_mdot)
-                # CREAM normalises to the peak and forces psi[0] = 0; show pycream2 the
+                # CREAM normalises to the peak and forces psi[0] = 0; show discotau the
                 # same way for the shape comparison.
                 cn = c / c.max()
                 pm = p_matched / p_matched.max()
                 po = p_old / p_old.max()
                 pd = p_default / p_default.max()
                 results["grids"][grid][f"{inc:.0f}"] = dict(
-                    dtau=float(dtau), cream=stats(tau, c), pycream2_matched=stats(tau, p_matched),
-                    pycream2_old_default=stats(tau, p_old), pycream2_default=stats(tau, p_default),
-                    pycream2_default_psi0_over_peak=float(pd[0]), pycream2_old_psi0_over_peak=float(po[0]),
-                    cream_psi1_over_peak=float(cn[1]), pycream2_psi0_over_peak=float(pm[0]),
-                    pycream2_psi1_over_peak=float(pm[1]),
+                    dtau=float(dtau), cream=stats(tau, c), discotau_matched=stats(tau, p_matched),
+                    discotau_old_default=stats(tau, p_old), discotau_default=stats(tau, p_default),
+                    discotau_default_psi0_over_peak=float(pd[0]), discotau_old_psi0_over_peak=float(po[0]),
+                    cream_psi1_over_peak=float(cn[1]), discotau_psi0_over_peak=float(pm[0]),
+                    discotau_psi1_over_peak=float(pm[1]),
                     max_abs_diff_after_first_bin=float(np.max(np.abs(cn[1:] - pm[1:]))),
                 )
                 ax = axes[row, col]
                 ax.plot(tau, cn, color="k", lw=1.4, label="CREAM tfbx")
-                ax.plot(tau, pm, color="tab:red", lw=1.0, ls="--", label="pycream2, CREAM's smoothing and delay")
-                ax.plot(tau, po, color="tab:blue", lw=0.8, ls=":", label="pycream2, old default")
-                ax.plot(tau, pd, color="tab:green", lw=1.0, ls="-.", label="pycream2, new default")
+                ax.plot(tau, pm, color="tab:red", lw=1.0, ls="--", label="discotau, CREAM's smoothing and delay")
+                ax.plot(tau, po, color="tab:blue", lw=0.8, ls=":", label="discotau, old default")
+                ax.plot(tau, pd, color="tab:green", lw=1.0, ls="-.", label="discotau, new default")
                 ax.set_xlim(0, 6)
                 ax.grid(alpha=0.6, lw=0.4)
                 if row == 0:

@@ -377,7 +377,7 @@ boundaries.</p>
     disc_sed_section = _disc_sed_section_html(ef, paths, data_uris) if "disc_sed" in paths else ""
 
     return f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>pycream2 report{f' -- {title}' if title else ''}</title>
+<html><head><meta charset="utf-8"><title>discotau report{f' -- {title}' if title else ''}</title>
 <style>
 body {{ font-family: -apple-system, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }}
 img {{ max-width: 100%; display: block; margin: 1rem 0; border: 1px solid #ddd; }}
@@ -386,7 +386,7 @@ td, th {{ border: 1px solid #ddd; padding: 4px 10px; text-align: left; }}
 code {{ background: #f2f2f2; padding: 1px 4px; }}
 </style></head>
 <body>
-<h1>pycream2 report</h1>
+<h1>discotau report</h1>
 <p>{header_line}</p>
 
 <h2>Posterior summary</h2>

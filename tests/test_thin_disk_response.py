@@ -1,7 +1,7 @@
 """
 Tests for forward_model.thin_disk_response (the accretion-disk response
 ported from the PhD-era CREAM Fortran, see CLAUDE.md) and the small
-pycream2.responses registry that makes it (and any custom response) a
+discotau.responses registry that makes it (and any custom response) a
 one-line, discoverable swap-in for "physical"-mode bands.
 """
 
@@ -10,8 +10,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from pycream2.forward_model import thin_disk_response, disk_temperature_profile, lag_scaling, _schwarzschild_radius_light_days, _WIEN_B_ANGSTROM_KELVIN
-from pycream2.responses import available_responses, get_response, register_response
+from discotau.forward_model import thin_disk_response, disk_temperature_profile, lag_scaling, _schwarzschild_radius_light_days, _WIEN_B_ANGSTROM_KELVIN
+from discotau.responses import available_responses, get_response, register_response
 
 _np_trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
 
@@ -114,7 +114,7 @@ def test_thin_disk_response_smoothing_days_zero_gives_exact_mean_lag_independenc
     tau_grid = jnp.linspace(-1.0, 8.0, 8000)
     tau_np = np.asarray(tau_grid)
 
-    from pycream2.forward_model import _schwarzschild_radius_light_days
+    from discotau.forward_model import _schwarzschild_radius_light_days
     hx = 3.0 * _schwarzschild_radius_light_days(1e8)
 
     lags = []
@@ -138,7 +138,7 @@ def test_thin_disk_response_default_smoothing_mean_lag_drift_is_bounded():
     the mean delay the way the Gaussian in tau did (~7-10% face-on to 80
     degrees): <tau> - h_x cos i (see the exact test above) drifts by only
     ~1% on this grid."""
-    from pycream2.forward_model import _schwarzschild_radius_light_days
+    from discotau.forward_model import _schwarzschild_radius_light_days
     hx = 3.0 * _schwarzschild_radius_light_days(1e8)
     tau_grid = jnp.linspace(-1.0, 8.0, 4000)
     tau_np = np.asarray(tau_grid)
@@ -177,7 +177,7 @@ def test_registry_supports_custom_registration():
         assert get_response("my_response") is my_response
         assert "my_response" in available_responses()
     finally:
-        from pycream2.responses import _REGISTRY
+        from discotau.responses import _REGISTRY
 
         del _REGISTRY["my_response"]
 
@@ -185,11 +185,11 @@ def test_registry_supports_custom_registration():
 def test_thin_disk_response_is_usable_via_the_existing_swap_mechanism():
     """thin_disk_response matches the same (tau_grid, log_mdot, wavelength,
     inclination, M_BH) contract as response_function, so it plugs into the
-    existing pycream2.model.response_function swap point (CLAUDE.md decision
+    existing discotau.model.response_function swap point (CLAUDE.md decision
     #5) with no further wiring -- exactly the point of the registry."""
-    import pycream2.model as model_mod
-    from pycream2.synthetic import generate_synthetic_dataset
-    from pycream2.echofit import EchoFit
+    import discotau.model as model_mod
+    from discotau.synthetic import generate_synthetic_dataset
+    from discotau.echofit import EchoFit
 
     original = model_mod.response_function
     try:
@@ -241,7 +241,7 @@ def test_thin_disk_mean_lag_obeys_the_standard_lag_temperature_relation():
     inclination. Without it X came out ~8, a ~3x temperature error. The
     relation is for the delay r (1 + sin i cos phi); the exact lamppost delay
     (September 2026) adds h_x cos i to the mean, which is subtracted here."""
-    from pycream2.forward_model import _schwarzschild_radius_light_days, disk_t1_kelvin
+    from discotau.forward_model import _schwarzschild_radius_light_days, disk_t1_kelvin
     hx = 3.0 * _schwarzschild_radius_light_days(10 ** 7.5)
     tau = jnp.linspace(0.0, 40.0, 8000)
     tau_np = np.asarray(tau)
@@ -302,7 +302,7 @@ def test_thin_disk_response_no_light_before_the_lamppost_delay(include_irradiati
     temperature peak just outside the ISCO (r_pk); with irradiation, which
     keeps the inner disk warm, the sigmoid mask still starts at r_pk but its
     tail reaches in towards the ISCO itself, so the bound is the ISCO's delay."""
-    from pycream2.forward_model import _schwarzschild_radius_light_days
+    from discotau.forward_model import _schwarzschild_radius_light_days
     M = 10 ** 7.5
     rs = _schwarzschild_radius_light_days(M)
     hx = 3.0 * rs
@@ -335,7 +335,7 @@ def test_default_response_has_no_inner_edge_spike(wavelength):
     makes cool gas respond strongly), a sharp spike at a fixed ~0.25-day delay
     for Fairall 9's parameters that CREAM's responses don't have. The default,
     irradiated response peaks well outside it, later at longer wavelengths."""
-    from pycream2.forward_model import _schwarzschild_radius_light_days
+    from discotau.forward_model import _schwarzschild_radius_light_days
     M = 2.55e8
     rs = _schwarzschild_radius_light_days(M)
     hx, r_pk = 3.0 * rs, 3.0 * rs * (3.5 / 3.0) ** 2

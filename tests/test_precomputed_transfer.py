@@ -9,12 +9,12 @@ import numpy as np
 import pytest
 from numpyro.infer.util import initialize_model
 
-from pycream2.echofit import EchoFit
-from pycream2.forward_model import (
+from discotau.echofit import EchoFit
+from discotau.forward_model import (
     compute_echo, driver_at, fourier_basis, response_function, transfer_coeffs, transfer_matrices,
 )
-from pycream2.grid_utils import graded_tau_grid
-from pycream2.model import reverberation_model
+from discotau.grid_utils import graded_tau_grid
+from discotau.model import reverberation_model
 
 
 def test_transfer_matrices_match_on_the_fly_transfer_coeffs():

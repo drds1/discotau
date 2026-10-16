@@ -2,38 +2,30 @@
 pycream2
 ========
 
-Bayesian modelling of AGN reverberation-mapping light curves as a delayed,
-smoothed echo of an unobserved driving (lamppost) light curve.
+The former name of :mod:`discotau` (renamed in October 2026). ``import pycream2``
+still works but warns; use ``import discotau``. This alias will be removed in a
+future release.
 
-The public entry point is the :class:`EchoFit` class::
-
-    from pycream2 import EchoFit
-
-    ef = EchoFit(M_BH=1e8)
-    ef.add_lightcurve("g", wavelength=4770.0, t=t_g, y=y_g, yerr=yerr_g)
-    ef.add_lightcurve("i", wavelength=7625.0, t=t_i, y=y_i, yerr=yerr_i)
-    ef.build_grid()
-    ef.fit(rng_seed=0)
-    ef.plot_lightcurve_fits()
+Every ``pycream2.<module>`` is the same module object as ``discotau.<module>``,
+so setting an attribute through either name (for example swapping
+``pycream2.model.response_function``) changes it for both.
 """
 
-from importlib.metadata import PackageNotFoundError, version as _version
+import importlib
+import pkgutil
+import sys
+import warnings
 
-from .echofit import EchoFit
-from .forward_model import lag_scaling, response_function, compute_echo
-from .synthetic import generate_synthetic_dataset
+import discotau
 
-__all__ = [
-    "EchoFit",
-    "lag_scaling",
-    "response_function",
-    "compute_echo",
-    "generate_synthetic_dataset",
-]
+warnings.warn(
+    "pycream2 has been renamed discotau: use `import discotau` instead. "
+    "The pycream2 alias will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-# Read from the installed package's metadata, so pyproject.toml is the one
-# place the version is set (see docs/releasing.md).
-try:
-    __version__ = _version("pycream2")
-except PackageNotFoundError:  # imported from a source tree that was never installed
-    __version__ = "0+unknown"
+for _info in pkgutil.iter_modules(discotau.__path__):
+    sys.modules[f"{__name__}.{_info.name}"] = importlib.import_module(f"discotau.{_info.name}")
+
+sys.modules[__name__] = discotau

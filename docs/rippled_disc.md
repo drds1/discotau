@@ -1,9 +1,9 @@
 # Rimmed and rippled discs
 
-`pycream2.rippled_disc` implements the rimmed and rippled accretion discs of
+`discotau.rippled_disc` implements the rimmed and rippled accretion discs of
 Starkey, Huang, Horne & Lin (2023, MNRAS 519, 2754;
 [arXiv:2212.01379](https://arxiv.org/abs/2212.01379)). It is a response
-function with pycream2's usual contract, so it drops into any fit, together with
+function with discotau's usual contract, so it drops into any fit, together with
 the disc's spectrum. This page covers four things:
 
 - what the model is;
@@ -120,8 +120,8 @@ through the usual swap point:
 
 ```python
 import functools
-import pycream2.model as model
-from pycream2.rippled_disc import rippled_disc_response, NGC5548_RIM
+import discotau.model as model
+from discotau.rippled_disc import rippled_disc_response, NGC5548_RIM
 model.response_function = functools.partial(rippled_disc_response, **NGC5548_RIM)
 ```
 

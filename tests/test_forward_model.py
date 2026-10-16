@@ -1,7 +1,7 @@
 import numpy as np
 import jax.numpy as jnp
 
-from pycream2.forward_model import (
+from discotau.forward_model import (
     lag_scaling,
     response_function,
     transfer_coeffs,

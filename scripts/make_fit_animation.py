@@ -80,16 +80,16 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.animation import FuncAnimation
 
-from pycream2 import model as _model
-from pycream2.echofit import EchoFit
-from pycream2.forward_model import (
+from discotau import model as _model
+from discotau.echofit import EchoFit
+from discotau.forward_model import (
     transfer_coeffs, compute_echo, driver_at,
     disk_temperature_profile, _schwarzschild_radius_light_days, lag_scaling,
 )
-from pycream2.synthetic import generate_synthetic_dataset
+from discotau.synthetic import generate_synthetic_dataset
 from matplotlib.colors import ListedColormap, LogNorm
 
-from pycream2.plotting import wavelength_to_colour, response_function_xlim, blackbody_to_colour
+from discotau.plotting import wavelength_to_colour, response_function_xlim, blackbody_to_colour
 
 # Purely for the illustrative disk panels -- the fit itself may use bands
 # at other wavelengths; this just sets the pictures' colour/size scale.

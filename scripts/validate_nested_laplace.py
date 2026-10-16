@@ -55,7 +55,7 @@ def reference(ef, nl_result, seed, n_live):
     from nautilus import Prior, Sampler
     from numpyro.infer.util import initialize_model
 
-    from pycream2.model import reverberation_model
+    from discotau.model import reverberation_model
 
     kwargs = dict(ef._model_kwargs(), marginalise_linear=True)
     info = initialize_model(jax.random.PRNGKey(0), reverberation_model, model_kwargs=kwargs,
@@ -102,7 +102,7 @@ def reference(ef, nl_result, seed, n_live):
     from numpyro.distributions.transforms import biject_to
     import numpyro.distributions as dist
 
-    from pycream2.model import INCLINATION_MAX_DEG
+    from discotau.model import INCLINATION_MAX_DEG
 
     lm = draws[:, order.index("log_mdot")]
     cos_t = biject_to(dist.Uniform(np.cos(np.deg2rad(INCLINATION_MAX_DEG)), 1.0).support)

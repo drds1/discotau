@@ -60,8 +60,8 @@ from pathlib import Path
 
 import numpy as np
 
-from pycream2.echofit import EchoFit
-from pycream2 import reporting
+from discotau.echofit import EchoFit
+from discotau import reporting
 
 
 def _check_distinct_files(bands):
@@ -125,7 +125,7 @@ def _parse_args():
 
     parser.add_argument("--title", default=None, help="Run name -- enables checkpointed/resumable output management.")
     parser.add_argument("--resume", action="store_true", help="Resume the latest run under --title instead of starting a new fit.")
-    parser.add_argument("--output-dir", default=None, help="Output root directory (default: $PYCREAM2_OUTPUT_DIR or ./outputs).")
+    parser.add_argument("--output-dir", default=None, help="Output root directory (default: $DISCOTAU_OUTPUT_DIR or ./outputs).")
 
     parser.add_argument("--num-warmup", type=int, default=1000)
     parser.add_argument("--num-samples", type=int, default=1000)

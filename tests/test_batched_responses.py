@@ -10,8 +10,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from pycream2 import model
-from pycream2.forward_model import response_function, thin_disk_response
+from discotau import model
+from discotau.forward_model import response_function, thin_disk_response
 
 TAU = jnp.concatenate([jnp.zeros(1), jnp.geomspace(0.01, 30.0, 199)])
 WAVELENGTHS = [1928.0, 3600.0, 4770.0, 7625.0]

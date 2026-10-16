@@ -1,4 +1,4 @@
-"""The disc SED, luminosity distance and H_0 analysis (pycream2.disc_sed):
+"""The disc SED, luminosity distance and H_0 analysis (discotau.disc_sed):
 known-answer tests on constructed light curves (no fitting), and its
 integration with EchoFit (sed_analysis=True, the report, resume)."""
 
@@ -8,10 +8,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from pycream2 import EchoFit
-from pycream2 import disc_sed
-from pycream2.forward_model import disk_t1_kelvin, driver_at
-from pycream2.synthetic import generate_synthetic_dataset
+from discotau import EchoFit
+from discotau import disc_sed
+from discotau.forward_model import disk_t1_kelvin, driver_at
+from discotau.synthetic import generate_synthetic_dataset
 
 M_BH = 1e8
 Z = 0.03
@@ -184,7 +184,7 @@ def _small_fit(**kwargs):
 
 
 def test_runs_after_optimise_and_appears_in_the_report(tmp_path):
-    from pycream2 import reporting
+    from discotau import reporting
 
     ef = _small_fit()
     with warnings.catch_warnings():

@@ -1,4 +1,4 @@
-"""The nested Laplace approximation (pycream2/nested_laplace.py,
+"""The nested Laplace approximation (discotau/nested_laplace.py,
 EchoFit.nested_laplace): exact on a toy posterior that is bimodal in the
 gridded parameter (where a single Laplace approximation cannot be), and
 end-to-end on a small EchoFit problem."""
@@ -13,9 +13,9 @@ import pytest
 import numpyro.distributions as dist
 from numpyro.infer.util import initialize_model
 
-from pycream2 import nested_laplace
-from pycream2.echofit import EchoFit
-from pycream2.synthetic import generate_synthetic_dataset
+from discotau import nested_laplace
+from discotau.echofit import EchoFit
+from discotau.synthetic import generate_synthetic_dataset
 
 Y_B = np.array([1.0, 1.6, 0.4, 1.3, 0.9])
 
@@ -135,7 +135,7 @@ def test_plot_landscape_and_report_section(tmp_path):
     import matplotlib
 
     matplotlib.use("Agg")
-    from pycream2 import reporting
+    from discotau import reporting
 
     data = generate_synthetic_dataset(bands={"g": 4770.0, "i": 7625.0}, M_BH=1.0e8, n_obs_per_band=30,
                                       n_freq=10, n_tau=60, noise_level=0.03, seed=3)
