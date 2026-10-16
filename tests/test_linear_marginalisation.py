@@ -148,7 +148,10 @@ def test_marginalised_fit_matches_sampled_fit():
     for marginalise in (False, True):
         ef = EchoFit(M_BH=1.0e8, marginalise_linear=marginalise)
         for name, d in data["bands"].items():
-            ef.add_lightcurve(name, wavelength=d["wavelength"], t=d["t"], y=d["y"], yerr=d["yerr"])
+            # No background, as in the synthetic truth (the default linear one
+            # since decision #29 makes the sampled fit's posterior noisier).
+            ef.add_lightcurve(name, wavelength=d["wavelength"], t=d["t"], y=d["y"], yerr=d["yerr"],
+                              background_order=0)
         ef.build_grid(n_freq=30, n_tau=200, period_max=2 * np.pi / float(data["freqs"].min()))
         ef.fit(num_warmup=500, num_samples=500, progress_bar=False, rng_seed=0)
         fits[marginalise] = ef

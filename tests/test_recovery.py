@@ -47,7 +47,11 @@ def _make_synthetic(seed: int):
 def _build_echofit(data, drw_prior: bool = False):
     ef = EchoFit(M_BH=data["truth"]["M_BH"], drw_prior=drw_prior)
     for name, d in data["bands"].items():
-        ef.add_lightcurve(name, wavelength=d["wavelength"], t=d["t"], y=d["y"], yerr=d["yerr"])
+        # No background: the synthetic truth has none, and since the linear
+        # background became the default (CLAUDE.md decision #29) its sampled
+        # coefficients trade off against the driver's slowest modes here.
+        ef.add_lightcurve(name, wavelength=d["wavelength"], t=d["t"], y=d["y"], yerr=d["yerr"],
+                          background_order=0)
     # Fit on the truth's own basis: the generator draws its driver with a
     # longest period of the baseline, shorter than build_grid()'s default.
     ef.build_grid(n_freq=15, n_tau=100, period_max=2 * np.pi / float(data["freqs"].min()))
