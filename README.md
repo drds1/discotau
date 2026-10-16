@@ -1,11 +1,12 @@
 # 🔭 discotau
 
-`discotau` is an AGN light curve fitting code that uses MCMC (via
-[JAX](https://github.com/google/jax) + [NumPyro](https://num.pyro.ai/)) to
-model multi-band light curves as a lagged echo of a lamppost-driven
-accretion disk[^1], inferring the posterior probability distributions of a
-physically motivated disk model's parameters: accretion rate (`mdot`),
-inclination, and temperature profile. Read on for install instructions,
+`discotau` is an AGN light curve fitting code, written in
+[JAX](https://github.com/google/jax) and [NumPyro](https://num.pyro.ai/), that
+models multi-band light curves as a lagged echo of a lamppost-driven
+accretion disk[^1]. It infers the posterior probability distributions of a
+physically motivated disk model's parameters (accretion rate `mdot`,
+inclination and temperature profile), either by MCMC (NUTS) or by a fast
+direct solve (a nested Laplace approximation with importance sampling). Read on for install instructions,
 tests on synthetic data, and example usage.
 
 The name is *disco* for the disc and *tau* (τ) for the delay, the light-travel
@@ -73,9 +74,10 @@ earlier animation of a fit taking shape is still produced by
 - [✅ Tests and coverage](#-tests-and-coverage)
 - [⏱️ Performance profiling](#-performance-profiling)
 - [🔄 Swapping the response function](#-swapping-the-response-function)
-- [🌈 Emission-line / free-lag mode and driver light curves](#-emission-line--free-lag-mode-and-driver-light-curves)
 - [🧩 Extra components: diffuse continuum and slow backgrounds](#-extra-components-diffuse-continuum-and-slow-backgrounds)
 - [🌍 Disc SED, luminosity distance and H0](#-disc-sed-luminosity-distance-and-h0)
+- [🏔️ Rimmed and rippled discs](#-rimmed-and-rippled-discs)
+- [🌈 Emission-line / free-lag mode and driver light curves](#-emission-line--free-lag-mode-and-driver-light-curves)
 - [⚠️ Status / caveats](#-status--caveats)
 - [📝 Citing discotau](#-citing-discotau)
 
@@ -151,8 +153,11 @@ against real campaigns yet.
 Each band's observed light curve is modelled as
 
 ```
-y_band(t) = S_band * ∫ X(t - τ) ψ(τ, λ_band, θ) dτ + C_band + ε
+y_band(t) = S_band * ∫ X(t - τ) ψ(τ, λ_band, θ) dτ + C_band + B_band(t) + ε
 ```
+
+where `B_band(t)` is an optional slow background (a linear trend by default,
+see "Extra components" below).
 
 - **Driver `X(t)`**: a stochastic process, represented as a truncated
   Fourier series `X(t) = Σ_k [S_k sin(w_k t) + C_k cos(w_k t)]` on a fixed
@@ -183,9 +188,12 @@ y_band(t) = S_band * ∫ X(t - τ) ψ(τ, λ_band, θ) dτ + C_band + ε
   at any set of observation times is then a single vectorised matrix
   contraction: no loop over `(t_obs, τ)` pairs, and no loop over bands.
 
-Only these are inferred: `log_mdot`, `inclination`, `sigma_drw`, the driver
-Fourier coefficients `{S_k, C_k}`, and per-band `{S_band, C_band}` --
-`tau_drw` too if `drw_prior=True`. **`M_BH` is always a fixed input.**
+By default these are inferred: `log_mdot`, `inclination`, `sigma_drw`, the
+driver Fourier coefficients `{S_k, C_k}`, and per band `{S_band, C_band}` and
+the linear background's coefficient `bg_{band}`. Options add more (`tau_drw`
+with `drw_prior=True`, the temperature slope with `fit_temperature_slope=True`,
+error rescaling with `fit_error_model=True`, and the diffuse continuum's three
+parameters per band). **`M_BH` is always a fixed input.**
 
 **Any of those (except `M_BH`, always fixed) can be fixed too**, via
 `EchoFit(fixed_params={...})`, e.g. to assume a face-on disk and make the
@@ -194,6 +202,12 @@ remaining parameters easier to solve for:
 ```python
 ef = EchoFit(M_BH=1e8, fixed_params={"inclination": 0.0})
 ```
+
+Works the same way for free-lag bands' `tau_{band}` (see "Emission-line /
+free-lag mode" below) if you already know a line's lag and want to hold it
+fixed while fitting everything else. A key that couldn't be a real site
+given the bands/driver actually registered raises at `.fit()` time, to
+catch typos rather than silently doing nothing.
 
 ### Random-walk vs. damped random-walk driver prior
 
@@ -216,12 +230,6 @@ instead: exact, no large-constant tuning, no `tau_drw` site at all in RW
 mode, and `sigma_drw` keeps the same site name and the same data-anchored
 prior either way (see `model.py`'s "random-walk prior" note and
 `CLAUDE.md` decision #19 for the full derivation).
-
-Works the same way for free-lag bands' `tau_{band}` (see "Emission-line /
-free-lag mode" below) if you already know a line's lag and want to hold it
-fixed while fitting everything else. A key that couldn't be a real site
-given the bands/driver actually registered raises at `.fit()` time, to
-catch typos rather than silently doing nothing.
 
 **Each light curve can optionally fit its own error rescaling**, via
 `add_lightcurve(..., fit_error_model=True)` (or
@@ -277,12 +285,15 @@ discotau/
                           faster per NUTS step)
     responses.py         a small registry (register_response/get_response) for
                           swapping in a built-in or custom physical response
-    model.py            NumPyro model (reverberation_model) + DRW prior scale
+    model.py            NumPyro model (reverberation_model), the RW and DRW driver priors,
+                          and the exact marginalisation of the linear parameters
     grid_utils.py        hybrid_frequency_grid (build_grid()'s driver frequencies),
                           estimate_dt_min (robust cadence estimate, shared with synthetic.py)
     inference.py         run_mcmc / run_mcmc_chunked: NUTS wrapper (the
                           latter supports checkpointing/resuming)
     echofit.py           EchoFit: main user-facing class
+    nested_laplace.py    the nested Laplace solve with importance sampling, what
+                          optimise() runs by default
     disc_sed.py          disc_sed_analysis: flux-flux host/disc decomposition, dust
                           correction, variable SED vs the disc's response, luminosity
                           distance and H0 (EchoFit(sed_analysis=True))
@@ -299,6 +310,7 @@ discotau/
                           generate_free_lag_dataset (free-lag bands + driver)
                           for tests / the demo notebook; with_disc_fluxes gives
                           a dataset absolute fluxes from a disc at a known distance
+pycream2/                 the package's former name, kept as a deprecated alias
 docs/
     fitting_guide.md      every setting, its default, and when to change it:
                           solver choice, NUTS options, grids, priors, lag modes
@@ -315,12 +327,18 @@ docs/
     nested_laplace.md     the default direct solve (optimise()): what it is,
                           how it works, validation against nested sampling,
                           Badness-of-Fit landscapes of log_mdot and inclination
+    extra_components.md   the diffuse continuum and slow backgrounds
+    disc_sed.md           the disc SED, luminosity distance and H0 analysis
+    rippled_disc.md       rimmed and rippled discs
+    cream_response_comparison.md  the thin-disc response against CREAM's own
     releasing.md          how to bump the version and publish a release to PyPI
 notebooks/
     demo.ipynb            end-to-end synthetic-data demo
     quickstart.ipynb      a complete disc fit in about three minutes (runs on Colab)
 scripts/
+    fit_lightcurves.py     the command-line fitting tool (see below)
     smoke_test.py          quick visual sanity check (see below)
+    make_echo_animation.py the animation at the top of this page
     profile_pipeline.py    one-off performance profile, split into one-off
                           vs per-iteration costs (see "Performance profiling")
     plot_thin_disk_response_scalings.py  regenerates docs/thin_disk_response.md's charts
@@ -328,7 +346,7 @@ scripts/
     plot_performance_analysis.py  regenerates docs/performance_improvements.md's charts
     plot_nested_laplace_landscape.py  regenerates docs/nested_laplace.md's landscapes
     validate_nested_laplace.py  the nested Laplace solve against nested sampling
-tests/
+tests/                   (a selection, see the directory for all of them)
     test_forward_model.py  basic sanity checks on the forward model
     test_recovery.py       end-to-end MCMC recovery test on synthetic data
     test_run_manager.py    checkpointing + resume-after-interruption tests
@@ -451,15 +469,19 @@ want GPU/TPU support instead.
 ## 🚀 Quickstart
 
 ```python
+import numpy as np
 from discotau import EchoFit, generate_synthetic_dataset
 
 data = generate_synthetic_dataset(M_BH=1e8)
 
 ef = EchoFit(M_BH=1e8)
+# The synthetic data have no slow trend, and their driver's longest period is
+# the baseline, shorter than build_grid()'s default. Fit them the way they
+# were made (for real data, leave both at their defaults).
 for name, d in data["bands"].items():
-    ef.add_lightcurve(name, wavelength=d["wavelength"], t=d["t"], y=d["y"], yerr=d["yerr"])
-
-ef.build_grid()             # driver frequencies up to 2 cycles/day, a 400-point lag grid
+    ef.add_lightcurve(name, wavelength=d["wavelength"], t=d["t"], y=d["y"], yerr=d["yerr"],
+                      background_order=0)
+ef.build_grid(period_max=2 * np.pi / data["freqs"].min())
 ef.fit(rng_seed=0, num_warmup=500, num_samples=500)
 
 ef.plot_raw_lightcurves()
@@ -510,7 +532,8 @@ ef.fit(init_from_optimum=True)         # optional: full NUTS, started at the opt
 With the nonlinear parameters (`log_mdot`, inclination, band gains,
 `sigma_drw`, ...) held fixed, every predicted light curve is *linear* in the
 driver's Fourier coefficients and the band offsets, which have Gaussian
-priors, so those ~130 parameters integrate out of the likelihood exactly.
+priors, so those parameters (a few hundred with the default grid) integrate out
+of the likelihood exactly.
 What remains is about 10 parameters, and only two of them, `log_mdot` and the
 inclination, make the posterior awkward: on data that constrain the disc
 weakly it becomes a curved valley or has two separate basins.
@@ -585,11 +608,14 @@ python scripts/fit_lightcurves.py \
     --num-warmup 1000 --num-samples 2000 --checkpoint-every 200
 ```
 
-`--band NAME WAVELENGTH PATH` is repeatable (one per band); the full
-argument list also covers `--free-lag-band`/`--driver` (see "Emission-line
-/ free-lag mode" below), `--num-chains`/`--chain-method`/`--max-tree-depth`,
-`--report-every`, `--output-dir`, `--n-freq`/`--n-tau`/`--tau-max`, and
-`--resume` -- run `python scripts/fit_lightcurves.py --help` for all of it.
+`--band NAME WAVELENGTH PATH` is repeatable (one per band). Other options
+include `--free-lag-band`/`--driver` (see "Emission-line / free-lag mode"
+below), `--fit-error-model`, `--diffuse-continuum` and `--background-order`,
+the direct solve (`--optimise`, or `--laplace` for the single Gaussian),
+`--num-chains`/`--chain-method`/`--max-tree-depth`, `--report-every`,
+`--output-dir`, `--f-max`/`--n-tau`/`--tau-max`, the disc SED options
+(`--sed-analysis`, `--redshift`, ...) and `--resume`. Run
+`python scripts/fit_lightcurves.py --help` for all of them.
 
 ### 🐍 From Python directly
 
@@ -664,10 +690,10 @@ nothing is written to disk.
 For a quick "did I break anything" check after touching `forward_model.py`,
 `model.py`, or `echofit.py`, run a short fit on synthetic data and save plots
 of the raw data, the inferred driving light curve (extended 30 days before/
-after the data -- its credible band should widen there before saturating,
-since the driver is DRW-like), the posterior-predictive echo fit + response
-function per band, the driver's power spectrum against the fitted DRW prior
-and the w^-2 random-walk asymptote, and MCMC trace diagnostics:
+after the data, where its credible band should widen), the
+posterior-predictive echo fit and response function per band, the driver's
+power spectrum against the fitted prior and a w^-2 reference line, and MCMC
+trace diagnostics:
 
 ```bash
 python scripts/smoke_test.py                # ~30-50s, 300 warmup + 300 samples
@@ -800,9 +826,10 @@ skips them for a single commit if you need to (e.g. a WIP commit on a
 branch nobody else is using yet).
 
 **CI** (`.github/workflows/tests.yml`, GitHub Actions) runs the *full*
-suite with coverage on every push to `main` and every pull request --
-this, not a local hook, is where tests actually run automatically, since
-it's the place the slow tests actually get run automatically.
+suite with coverage. Its automatic triggers on pushes and pull requests are
+switched off for now, to save Actions minutes, so start it by hand
+(Actions tab, Tests, "Run workflow", or `gh workflow run tests.yml --ref
+<branch>`). Re-enabling the triggers is a one-line change in the workflow.
 
 ## ⏱️ Performance profiling
 
@@ -865,10 +892,10 @@ on `tau_grid`. Two are built in:
   Unlike the closed-form skew-normal, this is a genuine disk integral, but
   an **exact analytic one**: the two radius/azimuth integral reduces, via a
   delta-function argument, to a single 1-D integral over azimuth (no
-  radial grid, no truncation). A single Gaussian smoothing convolution is
-  then applied on top (matching a genuine, physically-motivated part of
-  the original Fortran, not just numerical clean-up -- see the docs below
-  for why), exposed via `discotau.responses` for discoverability:
+  radial grid, no truncation). The result is smoothed by a 5 per cent
+  Gaussian in ln τ, which keeps it causal (CREAM smooths each disc
+  element's contribution too, see the docs below). It is exposed via
+  `discotau.responses` for discoverability:
 
   ```python
   import discotau.model as model
@@ -920,8 +947,8 @@ consistently by both fitting and plotting.
 
 ## 🧩 Extra components: diffuse continuum and slow backgrounds
 
-Two optional components, both **off by default** and switched on per light
-curve. Full motivation, mathematics, priors and a synthetic recovery study:
+Two optional components, set per light curve. The diffuse continuum is off
+by default, and a linear slow background is on by default. Full motivation, mathematics, priors and a synthetic recovery study:
 [`docs/extra_components.md`](docs/extra_components.md).
 
 - **Diffuse continuum (a second reprocessor).** The broad-line region's
@@ -971,8 +998,9 @@ flux gives the luminosity distance, and with the redshift, H₀ (Cackett, Horne
 discotau runs this after every `fit()` or `optimise()` and adds it to the
 report. It covers:
 
-- **Host and disc separation:** a flux-flux decomposition, assuming the
-  bluest band has no host light.
+- **Host and disc separation:** by default the bluest band is assumed to
+  have no host light, so its whole mean flux is disc and sets the distance.
+  A flux-flux decomposition is the alternative (`distance_method="flux_flux"`).
 - **Dust:** Galactic extinction (Cardelli, Clayton & Mathis 1989), and
   optionally a fitted intrinsic E(B−V).
 - **The variable SED:** compared with the disc's predicted response to the
@@ -1038,9 +1066,8 @@ centred on it.
 
 **This needs a driver light curve to be identifiable.** A global shift of
 the driver, compensated by shifting every band's lag the same amount,
-leaves the predicted light curves exactly unchanged (worked through in the
-"Background" section above, and proved directly, with no MCMC and no
-sampling noise, in `tests/test_shift_degeneracy.py`). The physical response
+leaves the predicted light curves exactly unchanged (proved directly, with
+no MCMC and no sampling noise, in `tests/test_shift_degeneracy.py`). The physical response
 escapes this because the shared `log_mdot` can only *rescale* every band's
 lag together, not shift them by a common additive amount; a free-lag
 band's `tau_{name}` has no such tie, so without an anchor the fit is
