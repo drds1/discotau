@@ -30,22 +30,19 @@ Villforth (2016): see [📝 Citing pycream2](#-citing-pycream2).
     [arXiv:1511.06162](https://arxiv.org/abs/1511.06162), whose
     disk-response model this code implements.
 
-![The driving light curve, each band's fitted echo and response function, a face-on accretion-disk temperature view, and a side-on schematic of the disk tilting with inclination against a fixed observer, all taking shape over the first 150 MCMC samples of a barely-warmed-up chain](https://raw.githubusercontent.com/drds1/pycream2/main/docs/images/fit_animation.gif)
+![A flickering lamppost above an inclined accretion disc. Each flicker sweeps outwards across the disc as a ripple that reaches the near side first, and below, the lamppost's light curve and its echoes in the far UV, B, V and I, each smoother, smaller and later than the last, beside their response functions](https://raw.githubusercontent.com/drds1/pycream2/main/docs/images/echo_animation.webp)
 
-*The driver, per-band echo/response-function fits (each with its own
-68%/95% credible envelope, expanding cumulatively as more samples
-accumulate -- wide early, narrowing as the chain converges), each band
-coloured by its real-world wavelength (X-ray black, UV violet, visible its
-actual spectral colour, IR+ reddish), a face-on disk-temperature view
-with each ring drawn in the true blackbody colour of its temperature
-(blue-white at the hot centre, orange-red in the cool outer disk, on a
-fixed Kelvin colour bar; titled with the frame's current
-log_mdot/inclination), and a side-on
-schematic where the disk line tilts with inclination while the eye-on-a-
-sphere observer and its line of sight stay fixed, and a Badness-of-Fit
-trace growing one point per sample -- all early in a NUTS chain (short
-warmup on purpose, so everything is still visibly finding its way).
-Regenerate with `python scripts/make_fit_animation.py`.*
+*This is what `pycream2` models. A lamppost above the black hole flickers
+stochastically (red noise, as AGN do). Its light heats each part of the disc
+after a light-travel delay, so every flicker sweeps outwards as a ripple
+that reaches the near side first. The disc is drawn in the true blackbody
+colour of its temperature. Each band's light curve is the lamppost's light
+curve smeared and delayed by that band's response function (right), so the
+longer the wavelength, the smoother, smaller and later the echo. The
+animation is built from the code's own disc temperature and response
+functions, with only the variability amplitude exaggerated. Regenerate it
+with `python scripts/make_echo_animation.py`. The earlier animation of a fit
+taking shape is still produced by `scripts/make_fit_animation.py`.*
 
 ## 🗂️ Contents
 

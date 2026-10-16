@@ -1306,6 +1306,19 @@ match; `pycream2.__version__` reads the installed metadata);
     SNR 300) and 1784 -> 1243 s (ugriz, SNR 1000), posteriors within Monte Carlo noise and log evidence equal
     to 0.01. The potential differs by ~1e-5 relative (float32 operation order).
 
+33. **The README header is `scripts/make_echo_animation.py`'s animation, not decision #14's fit animation
+    (October 2026, a direct request for something "more representative of what the code actually does but
+    still spacey").** A stochastically flickering lamppost (bending power-law red noise, log-normal flux)
+    heats an inclined disc after the code's own light-travel delay, so each flicker ripples outwards, near
+    side first. Each pixel's temperature is `T_visc**4 + T_irr**4 L(t - tau)`, drawn in true blackbody colour.
+    Below, the far UV, B, V and I light curves are the lamppost convolved with `thin_disk_response` at the
+    same disc, all on the lamppost's scale so the damping shows as well as the lag. No fitting is done, and
+    only the variability amplitude is exaggerated. The user asked for no code name in the frames, so a rename
+    doesn't force a re-render. It is published as an animated WebP (`docs/images/echo_animation.webp`, ~3 MB),
+    a third of an equivalent GIF's size. A GIF needs its palette built from many frames (a single frame's
+    palette turned the violet UV line crimson and banded the disc's core). `make_fit_animation.py` and its GIF
+    stay as they were.
+
 ## Known rough edges / things to check before trusting results on real data
 
 - `synthetic.py`'s ground truth is generated with the *same* forward model

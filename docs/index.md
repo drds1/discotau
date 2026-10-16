@@ -12,7 +12,7 @@ its Python wrapper [`pycecream`](https://github.com/drds1/pycecream),
 rewritten in pure JAX/NumPyro with gradient-based (NUTS) sampling, a fast
 direct-solve mode, and no Fortran compiler.
 
-![The driving light curve, each band's fitted echo and response function, the disk's temperature and inclination, all taking shape over the first MCMC samples](images/fit_animation.gif)
+![A flickering lamppost above an accretion disc. Each flicker ripples outwards across the disc, and each band's light curve is a smoother, smaller and later echo of it](images/echo_animation.webp)
 
 ## Install
 
