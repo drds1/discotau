@@ -672,8 +672,13 @@ match; `discotau.__version__` reads the installed metadata);
     intentional, regenerated-on-purpose binary assets, not accidents.
     **Superseded in October 2026 by two tiers (a direct request, "CI checks ... should be for testing
     small things").** `@pytest.mark.fit` marks the 64 tests that run NUTS or a direct solve. CI
-    (`.github/workflows/tests.yml`) runs the other 147, `pytest -m "not fit"`, on every push to main and
-    pull request (~4 min on the laptop). The fitting tier runs only by hand (`gh workflow run tests.yml -f
+    (`.github/workflows/tests.yml`) runs the other 147 (now 172, below), `pytest -m "not fit"`, on every push to main and
+    pull request (~1.5 min on GitHub). It grew to 172 with quick tests for what only the fitting
+    tier had covered: which sample sites each setting creates and the data-anchored priors, by tracing
+    the model (`test_quick_settings.py`); every setting surviving `resume()` without fitting
+    (`test_resume_settings.py`, the bug class of decisions #15/#18/#19/#22/#24, checked to catch a
+    reintroduced one; **add each new setting to it**); `fd_hessian`'s widths on an ill-conditioned
+    quadratic; the lazy linear draws; the command-line tool; `plot_disc_sed`. The fitting tier runs only by hand (`gh workflow run tests.yml -f
     tier=full`), and don't start it without asking the user. `tests/conftest.py` makes `MCMC.run`, the
     Laplace solve and the nested solve fail in any unmarked test, so the split is enforced rather than
     remembered. That guard also found the 64. The suite was run once with nothing marked, and every test

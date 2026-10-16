@@ -784,9 +784,10 @@ before trusting either.
 
 The tests come in two tiers.
 
-- **Quick** (`-m "not fit"`, 147 tests, about 4 minutes): unit tests of the
-  forward model, response functions, grids, priors, the marginalisation
-  maths, saving and loading, input checks and the like. None fits a model.
+- **Quick** (`-m "not fit"`, 172 tests, under 2 minutes on GitHub, about 4
+  on a laptop): unit tests of the forward model, response functions, grids,
+  priors, the marginalisation maths, the command-line tool, saving, loading
+  and resuming runs, input checks and the like. None fits a model.
 - **Fitting** (`-m fit`, 64 tests, about 10 minutes more): every test that
   runs NUTS or a direct solve, including the synthetic recovery and
   multi-chain convergence checks. Each pays its own JAX compilation.

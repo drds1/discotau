@@ -214,3 +214,16 @@ def test_sed_settings_persist_across_resume(tmp_path):
     resumed = EchoFit.resume("sed_resume", output_dir=str(tmp_path))
     assert (resumed.redshift, resumed.flux_unit, resumed.flux_scale, resumed.ebv_galactic) == (Z, "f_lambda", 1e-15, 0.03)
     assert resumed.sed_analysis is True and resumed.sed_options == options
+
+
+def test_plot_disc_sed_draws_every_panel():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    ef, _ = _constructed_echofit()
+    fig, _ = ef.plot_disc_sed()  # runs the analysis first when it hasn't been
+    assert ef.disc_sed is not None
+    assert len([ax for ax in fig.axes if ax.has_data()]) >= 4  # flux-flux, variable SED, mean SED, H0
+    plt.close(fig)
