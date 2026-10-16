@@ -1314,7 +1314,13 @@ match; `pycream2.__version__` reads the installed metadata);
     Below, the far UV, B, V and I light curves are the lamppost convolved with `thin_disk_response` at the
     same disc, all on the lamppost's scale so the damping shows as well as the lag. No fitting is done, and
     only the variability amplitude is exaggerated. The user asked for no code name in the frames, so a rename
-    doesn't force a re-render. It is published as an animated WebP (`docs/images/echo_animation.webp`, ~3 MB),
+    doesn't force a re-render. A second request ("make the disc look more like it's part of an AGN, not a
+    floating saucer") added broad-line-region clouds that light up after their own light-travel delays (the
+    disc's delay geometry, so they echo later than the disc), a dusty torus ray-traced once at start-up (dark
+    against the host's starlight, its inner face glowing as hot dust with a fixed 17-day delay) and a faint host
+    glow, viewed at 58 degrees as a type 1 AGN. These are illustrative and not to scale. The torus only reads
+    if its lit inner face is strong and the host light dim; bright host light filled the hole and flattened
+    the contrast. It is published as an animated WebP (`docs/images/echo_animation.webp`, ~3 MB),
     a third of an equivalent GIF's size. A GIF needs its palette built from many frames (a single frame's
     palette turned the violet UV line crimson and banded the disc's core). `make_fit_animation.py` and its GIF
     stay as they were.

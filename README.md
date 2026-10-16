@@ -30,19 +30,22 @@ Villforth (2016): see [📝 Citing pycream2](#-citing-pycream2).
     [arXiv:1511.06162](https://arxiv.org/abs/1511.06162), whose
     disk-response model this code implements.
 
-![A flickering lamppost above an inclined accretion disc. Each flicker sweeps outwards across the disc as a ripple that reaches the near side first, and below, the lamppost's light curve and its echoes in the far UV, B, V and I, each smoother, smaller and later than the last, beside their response functions](https://raw.githubusercontent.com/drds1/pycream2/main/docs/images/echo_animation.webp)
+![An active galactic nucleus. A flickering lamppost above an inclined accretion disc, ringed by broad-line clouds and a dusty torus. Each flicker ripples outwards across the disc, near side first, and the clouds and the torus's inner face light up later. Below, the lamppost's light curve and its echoes in the far UV, B, V and I, each smoother, smaller and later than the last, beside their response functions](https://raw.githubusercontent.com/drds1/pycream2/main/docs/images/echo_animation.webp)
 
 *This is what `pycream2` models. A lamppost above the black hole flickers
 stochastically (red noise, as AGN do). Its light heats each part of the disc
 after a light-travel delay, so every flicker sweeps outwards as a ripple
 that reaches the near side first. The disc is drawn in the true blackbody
-colour of its temperature. Each band's light curve is the lamppost's light
-curve smeared and delayed by that band's response function (right), so the
-longer the wavelength, the smoother, smaller and later the echo. The
-animation is built from the code's own disc temperature and response
-functions, with only the variability amplitude exaggerated. Regenerate it
-with `python scripts/make_echo_animation.py`. The earlier animation of a fit
-taking shape is still produced by `scripts/make_fit_animation.py`.*
+colour of its temperature. Further out, broad-line clouds and the inner face
+of the dusty torus light up later still, each after its own delay. Each
+band's light curve is the lamppost's light curve smeared and delayed by that
+band's response function (right), so the longer the wavelength, the
+smoother, smaller and later the echo. The disc and the light curves use the
+code's own temperature profile and response functions, with only the
+variability amplitude exaggerated. The clouds and torus are illustrative and
+not to scale. Regenerate with `python scripts/make_echo_animation.py`. The
+earlier animation of a fit taking shape is still produced by
+`scripts/make_fit_animation.py`.*
 
 ## 🗂️ Contents
 

@@ -12,7 +12,7 @@ its Python wrapper [`pycecream`](https://github.com/drds1/pycecream),
 rewritten in pure JAX/NumPyro with gradient-based (NUTS) sampling, a fast
 direct-solve mode, and no Fortran compiler.
 
-![A flickering lamppost above an accretion disc. Each flicker ripples outwards across the disc, and each band's light curve is a smoother, smaller and later echo of it](images/echo_animation.webp)
+![An active galactic nucleus. A flickering lamppost above an accretion disc, ringed by broad-line clouds and a dusty torus. Each flicker ripples outwards, and each band's light curve is a smoother, smaller and later echo of it](images/echo_animation.webp)
 
 ## Install
 

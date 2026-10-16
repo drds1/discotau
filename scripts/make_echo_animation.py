@@ -23,6 +23,13 @@ light curve smeared and delayed by that band's response function.
   and later variations are visible as such.
 - The lamppost varies stochastically, as an AGN does: red noise with a bending
   power-law spectrum (~1/f below the bend, ~1/f^2 above), log-normal in flux.
+- Around the disc, so that it reads as an active nucleus rather than a lone
+  disc: broad-line-region clouds (Balmer pink), each lighting up after its own
+  light-travel delay, tau = d + y sin i - z cos i, the same geometry as the disc
+  (they echo later than the disc does: the code's "second reprocessor"); a
+  dusty torus, ray-traced once, dark against the host galaxy's starlight
+  behind it, with its inner rim glowing as hot dust; and the host's glow.
+  These are not to scale (a real torus is ~100 times the disc's size).
 
 No code name is drawn into the frames, so a rename doesn't need a new render.
 
@@ -54,14 +61,26 @@ from pycream2.plotting import blackbody_to_colour, wavelength_to_colour
 
 # The disc: Fairall 9's black-hole mass, with an accretion rate that runs the
 # drawn disc from ~30,000 K inside to ~2,800 K at its rim (blue-white to
-# orange-red), viewed at a dramatic inclination.
+# orange-red), viewed past the torus as a type 1 AGN is.
 M_BH = 2.55e8  # Msun
 LOG_MDOT = 0.5
-INCLINATION = 62.0  # degrees
+INCLINATION = 58.0  # degrees
 RS_LD = 2 * 6.674e-8 * M_BH * 1.989e33 / 2.998e10 ** 2 / (2.998e10 * 86400)  # Schwarzschild radius, light-days
 R_IN, H_LAMP = 3 * RS_LD, 3 * RS_LD  # inner edge and lamppost height, light-days
 R_OUT = 7.0  # light-days, edge of the drawn disc
 IRRADIATION_REF = 1.0  # light-days: the lamppost's mean heating equals the viscous at this radius
+# The surroundings (light-days; not to scale).
+BLR_R = (7.5, 12.0)  # broad-line-region clouds: radial range
+BLR_N = 420
+BLR_THICKNESS = 0.3  # rms height / radius
+BLR_PERIOD_10 = 300.0  # days: orbital period at 10 light-days (Keplerian elsewhere; sped up for display)
+BLR_COLOUR = np.array([1.0, 0.42, 0.62])  # Balmer pink
+TORUS_R, TORUS_A = 15.0, 3.4  # torus: radius of the tube's centre and the tube's radius
+TORUS_DELAY = 17.0  # days: the hot-dust rim's response delay
+TORUS_RIM_COLOUR = np.array([1.0, 0.45, 0.16])  # ~1200 K dust
+TORUS_BODY_COLOUR = np.array([0.30, 0.20, 0.16])  # dust lit faintly by the host's starlight
+HOST_COLOUR = np.array([1.0, 0.86, 0.66])
+SCENE_SCALE_LD = 21.0  # half the image width, in light-days (the torus is cropped at the sides)
 # Bands: rest wavelength (Angstrom) and label.
 BANDS = [(1500, "FUV"), (4400, "B"), (5500, "V"), (8000, "I")]
 
@@ -78,7 +97,7 @@ ROW_AMPLITUDE = 0.4  # light-curve rows: one lamppost standard deviation, in row
 
 # Layout, in pixels at DPI.
 WIDTH, HEIGHT, DPI = 880, 640, 100
-DISC_FRACTION = 0.6  # top part of the figure for the disc
+DISC_FRACTION = 0.62  # top part of the figure for the disc
 BACKGROUND = "#03030a"
 BACKGROUND_RGB = np.array([3, 3, 10]) / 255.0
 SATURATION = 2.1
@@ -111,16 +130,20 @@ def echoes(t, light):
     return tau, out
 
 
-class DiscRenderer:
-    """The disc as seen by the observer (orthographic, inclined about the x axis),
-    rasterised to an RGB image with a bloom."""
+class AGNRenderer:
+    """The nucleus as seen by the observer (orthographic, inclined about the x
+    axis): the disc, the broad-line-region clouds and the torus, rasterised to
+    an RGB image with a bloom. The torus is static and ray-traced once."""
 
     def __init__(self, width, height):
         self.width, self.height = width, height
-        cos_i, sin_i = np.cos(np.deg2rad(INCLINATION)), np.sin(np.deg2rad(INCLINATION))
-        scale = 0.82 * (width / 2) / R_OUT  # pixels per light-day
-        x_pix, y_pix = np.meshgrid(np.arange(width) - width / 2, height * 0.5 - np.arange(height))
-        x, y = x_pix / scale, y_pix / scale / cos_i  # back onto the disc plane
+        self.cos_i, self.sin_i = np.cos(np.deg2rad(INCLINATION)), np.sin(np.deg2rad(INCLINATION))
+        cos_i, sin_i = self.cos_i, self.sin_i
+        self.scale = scale = (width / 2) / SCENE_SCALE_LD  # pixels per light-day
+        self.cx, self.cy = width / 2, height * 0.5
+        x_pix, y_pix = np.meshgrid(np.arange(width) - self.cx, self.cy - np.arange(height))
+        self.X, self.Y = x_pix / scale, y_pix / scale  # sky coordinates, light-days
+        x, y = self.X, self.Y / cos_i  # back onto the disc plane
         self.r = np.hypot(x, y)
         self.on_disc = (self.r > R_IN) & (self.r < R_OUT)
         r = np.clip(self.r, R_IN * 1.001, None)
@@ -134,21 +157,77 @@ class DiscRenderer:
         self.t4_visc, self.t4_irr = t4_visc, irr * t4_ref / (H_LAMP / d_ref ** 3)
         # Soft edges, so the disc fades out rather than ending on a hard line.
         self.edge = np.clip((R_OUT - self.r) / (0.25 * R_OUT), 0, 1) ** 1.5 * self.on_disc
-        self.lamp_xy = (width / 2, height * 0.5 - H_LAMP * sin_i * scale)
+        self.lamp_xy = (self.cx, self.cy - H_LAMP * sin_i * scale)
         # Colour and brightness looked up on a log-temperature grid (fast).
         self.log_t = np.linspace(np.log10(1500.0), np.log10(2e5), 512)
         self.rgb_table = blackbody_to_colour(10 ** self.log_t)
-        # A starfield, with a slow twinkle.
+        self.t_ref = 4500.0  # brightness scale (Kelvin): Reinhard tone mapping of T^4 about it
         rng = np.random.default_rng(11)
-        n = 420
+        # Background: the host galaxy's starlight (an inclined exponential bulge
+        # and disc) and foreground stars, with a slow twinkle.
+        r_host = np.hypot(self.X, self.Y / 0.55)
+        self.host = (0.10 * np.exp(-r_host / 10.0) + 0.05 * np.exp(-r_host / 35.0))[..., None] * HOST_COLOUR
+        n = 300
         self.stars = (rng.uniform(0, width, n), rng.uniform(0, height, n), rng.uniform(0.15, 1.0, n) ** 3,
                       rng.uniform(0, 2 * np.pi, n), rng.uniform(0.5, 2.0, n))
-        self.t_ref = 4500.0  # brightness scale (Kelvin): Reinhard tone mapping of T^4 about it
+        # Broad-line-region clouds in a thick, rotating distribution.
+        u = rng.uniform(0, 1, BLR_N)
+        self.blr_r = BLR_R[0] + (BLR_R[1] - BLR_R[0]) * u ** 0.7
+        self.blr_phi0 = rng.uniform(0, 2 * np.pi, BLR_N)
+        self.blr_z = rng.normal(0, BLR_THICKNESS, BLR_N) * self.blr_r
+        self.blr_omega = 2 * np.pi / BLR_PERIOD_10 * (self.blr_r / 10.0) ** -1.5
+        self.blr_size = rng.uniform(0.6, 1.4, BLR_N)
+        self._trace_torus()
+
+    def _trace_torus(self, n_steps=72):
+        """Ray-trace the torus once: for each pixel, its emission and
+        transmission in front of and behind the disc plane. Its density falls
+        off smoothly from the tube's centre; its inner rim (facing the nucleus)
+        glows as hot dust, the rest absorbs and faintly scatters starlight."""
+        cos_i, sin_i = self.cos_i, self.sin_i
+        reach = TORUS_R + 2 * TORUS_A
+        s_grid = np.linspace(reach, -reach, n_steps)  # along the line of sight, observer first
+        ds = s_grid[0] - s_grid[1]
+        shape = self.X.shape
+        out = {k: np.zeros(shape) for k in ("rim_front", "body_front", "rim_back", "body_back")}
+        trans = {"front": np.ones(shape), "back": np.ones(shape)}
+        s_disc = -self.Y * sin_i / cos_i  # where each ray crosses the disc plane
+        for s in s_grid:
+            # Position on the ray: X e1 + Y e2 + s n, with e2 = (0, cos i, sin i), n = (0, -sin i, cos i).
+            x = self.X
+            y = self.Y * cos_i - s * sin_i
+            z = self.Y * sin_i + s * cos_i
+            rho = np.hypot(x, y)
+            q = np.hypot(rho - TORUS_R, z) / TORUS_A
+            dens = np.exp(-0.5 * (q / 0.55) ** 4)  # a soft-edged tube
+            rim = dens * np.exp(-np.clip(rho - (TORUS_R - TORUS_A), 0, None) / 1.8) * np.exp(-0.5 * (z / (1.0 * TORUS_A)) ** 2)
+            dtau = 1.6 * dens * ds
+            front = s > s_disc
+            for name, mask in (("front", front), ("back", ~front)):
+                t = trans[name]
+                contrib = np.where(mask, t * (1 - np.exp(-dtau)), 0.0)
+                out[f"rim_{name}"] += np.where(mask, t * rim * ds, 0.0)
+                out[f"body_{name}"] += contrib
+                trans[name] = np.where(mask, t * np.exp(-dtau), t)
+        self.torus = out
+        self.torus_trans = trans
 
     def render(self, t, t_grid, light):
+        img = self.host.copy()
+        # Stars behind everything.
+        sx, sy, sb, sp, sf = self.stars
+        star = np.zeros(self.r.shape)
+        star[sy.astype(int), sx.astype(int)] = sb * (0.75 + 0.25 * np.sin(sp + sf * t))
+        img += (gaussian_filter(star, 0.6) * 4.0)[..., None] * np.array([0.85, 0.9, 1.0])
+        # The far side of the torus: absorbs what is behind it and adds its own light.
+        rim_level = np.interp(t - TORUS_DELAY, t_grid, light) ** 0.5
+        tor = self.torus
+        img = img * self.torus_trans["back"][..., None]
+        img += tor["body_back"][..., None] * TORUS_BODY_COLOUR * 0.25
+        img += (tor["rim_back"] * 0.55 * rim_level)[..., None] * TORUS_RIM_COLOUR
+        # The disc.
         level = np.interp(t - self.tau, t_grid, light)
-        t4 = self.t4_visc + self.t4_irr * level
-        temp = t4 ** 0.25
+        temp = (self.t4_visc + self.t4_irr * level) ** 0.25
         log_t = np.clip(np.log10(temp), self.log_t[0], self.log_t[-1])
         idx = np.clip(((log_t - self.log_t[0]) / (self.log_t[-1] - self.log_t[0]) * 511).astype(int), 0, 511)
         rgb = self.rgb_table[idx]
@@ -156,24 +235,32 @@ class DiscRenderer:
         rgb = np.clip(grey + SATURATION * (rgb - grey), 0, 1)  # blackbody colours are pale: richer for display
         lum = (temp / self.t_ref) ** 4
         bright = (lum / (1.0 + lum)) ** 0.5
-        img = rgb * bright[..., None] * self.edge[..., None]
+        cover = np.clip(self.edge * 1.5, 0, 1)[..., None]
+        img = img * (1 - cover) + rgb * bright[..., None] * self.edge[..., None]
+        # The broad-line-region clouds, each echoing the lamppost after its own delay.
+        phi = self.blr_phi0 + self.blr_omega * t
+        bx, by, bz = self.blr_r * np.cos(phi), self.blr_r * np.sin(phi), self.blr_z
+        delay = np.sqrt(bx ** 2 + by ** 2 + bz ** 2) + by * self.sin_i - bz * self.cos_i
+        glow = np.interp(t - delay, t_grid, light) ** 0.8
+        px = self.cx + bx * self.scale
+        py = self.cy - (by * self.cos_i + bz * self.sin_i) * self.scale
+        ok = (px >= 0) & (px < self.width) & (py >= 0) & (py < self.height)
+        clouds = np.zeros(self.r.shape)
+        np.add.at(clouds, (py[ok].astype(int), px[ok].astype(int)), 0.35 * glow[ok] * self.blr_size[ok])
+        img += (gaussian_filter(clouds, 2.2) * 6.0 + gaussian_filter(clouds, 14.0) * 12.0)[..., None] * BLR_COLOUR
         # The lamppost: a point whose brightness follows L(t).
         lamp = np.zeros(self.r.shape)
         lx, ly = self.lamp_xy
-        iy, ix = int(round(ly)), int(round(lx))
-        lamp[iy, ix] = 60.0 * np.interp(t, t_grid, light)
+        lamp[int(round(ly)), int(round(lx))] = 60.0 * np.interp(t, t_grid, light)
         img += gaussian_filter(lamp, 2.0)[..., None] * np.array([0.85, 0.9, 1.0])
         img += gaussian_filter(lamp, 9.0)[..., None] * np.array([0.6, 0.7, 1.0]) * 4.0
+        # The near side of the torus, in front of everything else.
+        img = img * self.torus_trans["front"][..., None]
+        img += tor["body_front"][..., None] * TORUS_BODY_COLOUR * 0.25
+        img += (tor["rim_front"] * 0.55 * rim_level)[..., None] * TORUS_RIM_COLOUR
         # Bloom: a blurred copy of the bright parts added back.
-        glow = gaussian_filter(np.clip(img - 0.6, 0, None), sigma=(5, 5, 0))
-        img = img + 0.5 * glow
-        # Stars behind (hidden by the disc where it is bright).
-        sx, sy, sb, sp, sf = self.stars
-        twinkle = sb * (0.75 + 0.25 * np.sin(sp + sf * t))
-        star = np.zeros(self.r.shape)
-        star[sy.astype(int), sx.astype(int)] = twinkle
-        star = gaussian_filter(star, 0.6) * 4.0
-        img += (star * (1 - np.clip(self.edge * 3, 0, 1)))[..., None] * np.array([0.85, 0.9, 1.0])
+        bloom = gaussian_filter(np.clip(img - 0.6, 0, None), sigma=(5, 5, 0))
+        img = img + 0.5 * bloom
         return np.clip(img + BACKGROUND_RGB, 0, 1)
 
 
@@ -204,9 +291,6 @@ def build_figure(renderer, tau, bands):
     ax_img = fig.add_axes([0, 1 - DISC_FRACTION, 1, DISC_FRACTION])
     ax_img.set_axis_off()
     image = ax_img.imshow(np.zeros((renderer.height, renderer.width, 3)), interpolation="bilinear")
-    fig.text(0.025, 0.95, "a flickering lamppost, echoed by an accretion disc", fontsize=11, color="#b4b6d8")
-    fig.text(0.975, 0.955, f"inclination {INCLINATION:.0f}\u00b0, light-travel delays across the disc",
-             fontsize=8, color="#7a7ca0", ha="right")
     # The light curves (left) and responses (right).
     ax_lc = fig.add_axes([0.07, 0.07, 0.62, 1 - DISC_FRACTION - 0.1], facecolor=BACKGROUND)
     keys = ["lamppost"] + [label for _, label in BANDS]
@@ -258,7 +342,7 @@ def main():
     args = parser.parse_args()
     t_grid, light = driver()
     tau, bands = echoes(t_grid, light)
-    renderer = DiscRenderer(WIDTH, int(HEIGHT * DISC_FRACTION))
+    renderer = AGNRenderer(WIDTH, int(HEIGHT * DISC_FRACTION))
     parts = build_figure(renderer, tau, bands)
     times = np.linspace(T_START, T_END, N_FRAMES)
     if args.still is not None:
