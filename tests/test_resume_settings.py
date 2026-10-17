@@ -36,6 +36,10 @@ SETTINGS = dict(
     ebv_galactic=0.03,
     sed_analysis=True,
     sed_options={"host_band": "g", "include_irradiation": False},
+    inclination_max=60.0,
+    inclination_prior="type1",
+    type1_opening_deg=40.0,
+    type1_width_deg=7.0,
 )
 FIT = dict(num_warmup=7, num_samples=11, checkpoint_every=5, max_tree_depth=4, dense_mass=False, rng_seed=3)
 BANDS = {  # name: (lag_mode, fit_error_model, diffuse_continuum, background_order)

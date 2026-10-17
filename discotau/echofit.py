@@ -325,6 +325,8 @@ class EchoFit:
         marginalise_linear: bool = False, fit_temperature_slope: bool = False,
         redshift: Optional[float] = None, flux_unit: str = "mJy", flux_scale: float = 1.0,
         ebv_galactic: float = 0.0, sed_analysis: bool = False, sed_options: Optional[dict] = None,
+        inclination_max: Optional[float] = None, inclination_prior: str = "isotropic",
+        type1_opening_deg: float = _model.TYPE1_OPENING_DEG, type1_width_deg: float = _model.TYPE1_WIDTH_DEG,
     ):
         self.M_BH = float(M_BH) if M_BH is not None else None
         self.title = title
@@ -332,6 +334,18 @@ class EchoFit:
         self.drw_prior = bool(drw_prior)
         self.marginalise_linear = bool(marginalise_linear)
         self.fit_temperature_slope = bool(fit_temperature_slope)
+        # The inclination prior (model.py's "inclination note"): its maximum
+        # (None: model.INCLINATION_MAX_DEG) and "isotropic" or "type1".
+        if inclination_max is not None and not 0.0 < float(inclination_max) <= 90.0:
+            raise ValueError(f"inclination_max must be in (0, 90] degrees, got {inclination_max}")
+        if inclination_prior not in _model.INCLINATION_PRIORS:
+            raise ValueError(f"inclination_prior must be one of {_model.INCLINATION_PRIORS}, got {inclination_prior!r}")
+        if not 0.0 < float(type1_opening_deg) < 90.0 or float(type1_width_deg) <= 0.0:
+            raise ValueError("type1_opening_deg must be in (0, 90) degrees and type1_width_deg positive, "
+                             f"got {type1_opening_deg} and {type1_width_deg}")
+        self.inclination_max = None if inclination_max is None else float(inclination_max)
+        self.inclination_prior = inclination_prior
+        self.type1_opening_deg, self.type1_width_deg = float(type1_opening_deg), float(type1_width_deg)
         if flux_unit not in disc_sed.FLUX_UNITS:
             raise ValueError(f"flux_unit must be one of {disc_sed.FLUX_UNITS}, got {flux_unit!r}")
         if sed_analysis and redshift is None:
@@ -625,6 +639,10 @@ class EchoFit:
             transfer_mats=transfer_matrices(self.tau_grid, self.freqs),
             marginalise_linear=self.marginalise_linear,
             fit_temperature_slope=self.fit_temperature_slope,
+            inclination_max_deg=self.inclination_max,
+            inclination_prior=self.inclination_prior,
+            type1_opening_deg=self.type1_opening_deg,
+            type1_width_deg=self.type1_width_deg,
         )
 
     def _sigma_drw_prior_scale(self) -> float:
@@ -796,6 +814,10 @@ class EchoFit:
             redshift=manifest.get("redshift"), flux_unit=manifest.get("flux_unit", "mJy"),
             flux_scale=manifest.get("flux_scale", 1.0), ebv_galactic=manifest.get("ebv_galactic", 0.0),
             sed_analysis=manifest.get("sed_analysis", False), sed_options=manifest.get("sed_options"),
+            inclination_max=manifest.get("inclination_max"),
+            inclination_prior=manifest.get("inclination_prior", "isotropic"),
+            type1_opening_deg=manifest.get("type1_opening_deg", _model.TYPE1_OPENING_DEG),
+            type1_width_deg=manifest.get("type1_width_deg", _model.TYPE1_WIDTH_DEG),
         )
         ef.run_dir = run_dir
         ef._fit_config = manifest["fit_config"]
@@ -997,6 +1019,8 @@ class EchoFit:
                     redshift=self.redshift, flux_unit=self.flux_unit, flux_scale=self.flux_scale,
                     ebv_galactic=self.ebv_galactic, sed_analysis=self.sed_analysis,
                     sed_options=self.sed_options,
+                    inclination_max=self.inclination_max, inclination_prior=self.inclination_prior,
+                    type1_opening_deg=self.type1_opening_deg, type1_width_deg=self.type1_width_deg,
                 ))
 
         chunk_samples_so_far, chunk_extra_so_far = [], []

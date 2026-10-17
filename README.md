@@ -180,7 +180,13 @@ see "Extra components" below).
   the mean lag. `inclination` is sampled uniform in `cos(inclination)`, not
   in `inclination` itself -- the standard "isotropic orientation" prior
   (`dOmega = sin(i) di dphi` is flat in `cos(i)`; uniform in `i` directly
-  over-weights edge-on orientations).
+  over-weights edge-on orientations), up to `inclination_max` (default 80°).
+  Disc lags are measured only in type 1 AGN, whose disc is seen past the
+  torus, so `EchoFit(inclination_prior="type1")` tapers that prior towards
+  low inclinations, multiplying it by `1 / (1 + exp((i - opening) / width))`
+  (`type1_opening_deg=50`, `type1_width_deg=10` by default). It matters only
+  where the data constrain the inclination weakly, and there the posterior
+  on `i` is mostly this prior.
 - **Convolution**: because the driver is exactly a Fourier series, the
   convolution `∫ ψ(τ) X(t-τ) dτ` has a closed form in terms of the response
   function's own Fourier transform, evaluated once per driver frequency

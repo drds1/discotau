@@ -1342,6 +1342,17 @@ match; `discotau.__version__` reads the installed metadata);
     palette turned the violet UV line crimson and banded the disc's core). `make_fit_animation.py` and its GIF
     stay as they were.
 
+34. **Inclination prior options: `EchoFit(inclination_max=..., inclination_prior="type1", type1_opening_deg,
+    type1_width_deg)` (October 2026, a direct request).** Disc lags come only from type 1 AGN, seen past the
+    torus, so the relevant prior is the isotropic one (uniform in cos i) times the chance of an unobscured view,
+    a logistic taper `1 / (1 + exp((i - opening) / width))`, added as the factor site `type1_inclination_prior`
+    (50 and 10 degrees by default). `"isotropic"` stays the default. `inclination_max` replaces monkeypatching
+    `model.INCLINATION_MAX_DEG` (unset, it still uses that constant, so old scripts that patch it keep working).
+    The nested solve takes its grid range from the prior's own support, so it honours the maximum. Persisted
+    across `resume()` (in `test_resume_settings.py`), with command-line flags. Kept out of the Fairall 9
+    analysis at the user's request. It changes the answer only where the data constrain i weakly, and there
+    the posterior on i is the prior handed back, so state it as an assumption.
+
 ## Known rough edges / things to check before trusting results on real data
 
 - `synthetic.py`'s ground truth is generated with the *same* forward model

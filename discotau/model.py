@@ -98,7 +98,15 @@ prior in `i` directly over-weights edge-on orientations relative to a
 population with no preferred axis. `inclination` (in degrees) remains the
 name every other function reads (plotting, `response_function`, the disk
 visualisation) -- only the sampling parameterisation changed, not the
-site's public meaning.
+site's public meaning. The maximum is `inclination_max_deg`
+(`EchoFit(inclination_max=...)`), the module's `INCLINATION_MAX_DEG` when
+unset. Disc lags are measured only in type 1 AGN, whose disc is seen past the
+torus, so `inclination_prior="type1"` (`EchoFit(inclination_prior="type1")`)
+multiplies the isotropic prior by the chance of that view, a logistic taper
+`1 / (1 + exp((i - opening) / width))` (`type1_opening_deg`,
+`type1_width_deg`), added as the factor site `type1_inclination_prior`. It
+changes the answer only where the data constrain the inclination weakly; where
+they don't, the posterior on `i` is this prior handed back, so say so.
 
 Fixed-parameter note: `fixed_params` (`EchoFit(fixed_params={...})`) lets
 any of this model's scalar sites (`sigma_drw`, `tau_drw` if `drw_prior=True`
@@ -212,6 +220,12 @@ from .forward_model import (
 )
 
 INCLINATION_MAX_DEG = 80.0
+# The inclination priors (EchoFit(inclination_prior=...)): "isotropic" is uniform
+# in cos(inclination) up to the maximum; "type1" multiplies that by a logistic
+# taper, the chance of seeing the disc past the torus, 1 / (1 + exp((i -
+# opening) / width)), for disc lags measured only in unobscured (type 1) AGN.
+INCLINATION_PRIORS = ("isotropic", "type1")
+TYPE1_OPENING_DEG, TYPE1_WIDTH_DEG = 50.0, 10.0
 # Uniform prior bounds on the free temperature slope alpha (T ~ r**-alpha,
 # fit_temperature_slope=True). The upper bound was 1.5 until NGC 5548's
 # posterior piled up against it.
@@ -299,6 +313,10 @@ def reverberation_model(
     marginalise_linear: bool = False,
     draw_linear: bool = False,
     fit_temperature_slope: bool = False,
+    inclination_max_deg: Optional[float] = None,
+    inclination_prior: str = "isotropic",
+    type1_opening_deg: float = TYPE1_OPENING_DEG,
+    type1_width_deg: float = TYPE1_WIDTH_DEG,
 ):
     """NumPyro model for multi-band reverberation-mapped light curves.
 
@@ -452,9 +470,15 @@ def reverberation_model(
             # Uniform in cos(inclination), not inclination itself -- see the
             # module docstring's "inclination note". inclination stays the
             # public (degrees) site every other function reads.
-            cos_incl_min = jnp.cos(jnp.deg2rad(INCLINATION_MAX_DEG))
+            max_deg = INCLINATION_MAX_DEG if inclination_max_deg is None else inclination_max_deg
+            cos_incl_min = jnp.cos(jnp.deg2rad(max_deg))
             cos_inclination = numpyro.sample("cos_inclination", dist.Uniform(cos_incl_min, 1.0))
             inclination = numpyro.deterministic("inclination", jnp.rad2deg(jnp.arccos(cos_inclination)))
+            if inclination_prior == "type1":
+                # Seen as a type 1 AGN: the isotropic prior times the chance of an
+                # unobscured view, a logistic taper about the torus opening angle.
+                numpyro.factor("type1_inclination_prior",
+                               jax.nn.log_sigmoid((type1_opening_deg - inclination) / type1_width_deg))
         # Free temperature slope alpha (T ~ r**-alpha), Starkey et al. (2017)'s
         # Model 2; only passed to the response when requested, so responses
         # without a viscous_slope argument (the skew-normal) are unaffected.

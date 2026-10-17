@@ -117,3 +117,53 @@ def test_wien_radius_is_where_the_disc_has_the_wien_temperature(slope):
     assert t1 * r ** -slope == pytest.approx(_WIEN_B_ANGSTROM_KELVIN / wavelength, rel=1e-4)
     if slope == 0.75:
         assert r == pytest.approx(float(lag_scaling(log_mdot, wavelength, m_bh)), rel=1e-4)
+
+
+def _inclination_factor(ef, inclination_deg, marginalise_linear=False):
+    """The type1 prior's factor at a given inclination (None if absent)."""
+    kwargs = dict(ef._model_kwargs(), marginalise_linear=marginalise_linear)
+    values = {"cos_inclination": np.cos(np.deg2rad(inclination_deg))}
+    tr = handlers.trace(handlers.substitute(handlers.seed(reverberation_model, 0), values)).get_trace(**kwargs)
+    site = tr.get("type1_inclination_prior")
+    return None if site is None else float(site["fn"].log_factor)
+
+
+def test_default_inclination_prior_is_unchanged(data):
+    ef = _echofit(data)
+    assert (ef.inclination_max, ef.inclination_prior) == (None, "isotropic")
+    assert _inclination_factor(ef, 30.0) is None
+    assert float(_trace(ef)["cos_inclination"]["fn"].low) == pytest.approx(np.cos(np.deg2rad(80.0)))
+
+
+def test_inclination_max_sets_the_prior_bound(data):
+    tr = _trace(_echofit(data, inclination_max=45.0))
+    assert float(tr["cos_inclination"]["fn"].low) == pytest.approx(np.cos(np.deg2rad(45.0)))
+
+
+@pytest.mark.parametrize("marginalise_linear", [False, True])
+def test_type1_prior_tapers_the_inclination(data, marginalise_linear):
+    ef = _echofit(data, inclination_prior="type1", type1_opening_deg=50.0, type1_width_deg=10.0)
+    def expected(i):
+        return -np.log1p(np.exp((i - 50.0) / 10.0))  # log of the logistic taper
+    for i in (10.0, 50.0, 70.0):
+        assert _inclination_factor(ef, i, marginalise_linear) == pytest.approx(expected(i), abs=1e-4)
+    # Past the opening angle the prior falls off; well inside it, it is the isotropic one.
+    assert _inclination_factor(ef, 70.0) < _inclination_factor(ef, 30.0) - 1.5
+    assert _inclination_factor(ef, 10.0) == pytest.approx(0.0, abs=0.02)
+
+
+def test_type1_prior_is_ignored_for_a_fixed_inclination(data):
+    ef = _echofit(data, inclination_prior="type1", fixed_params={"inclination": 30.0})
+    assert "type1_inclination_prior" not in _trace(ef)
+
+
+@pytest.mark.parametrize("kwargs, message", [
+    (dict(inclination_prior="type2"), "inclination_prior"),
+    (dict(inclination_max=95.0), "inclination_max"),
+    (dict(inclination_max=0.0), "inclination_max"),
+    (dict(inclination_prior="type1", type1_width_deg=0.0), "type1"),
+    (dict(inclination_prior="type1", type1_opening_deg=95.0), "type1"),
+])
+def test_bad_inclination_prior_settings_are_refused(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        EchoFit(M_BH=1.0e8, **kwargs)

@@ -117,6 +117,17 @@ def _parse_args():
              "see docs/extra_components.md.",
     )
     parser.add_argument(
+        "--inclination-max", type=float, default=None,
+        help="Upper limit of the inclination prior, degrees (default 80).",
+    )
+    parser.add_argument(
+        "--inclination-prior", choices=("isotropic", "type1"), default="isotropic",
+        help="isotropic (default): uniform in cos(inclination). type1: that, tapered to favour the "
+             "unobscured view of a type 1 AGN, about --type1-opening with --type1-width.",
+    )
+    parser.add_argument("--type1-opening", type=float, default=50.0, help="type1 prior's opening angle, degrees.")
+    parser.add_argument("--type1-width", type=float, default=10.0, help="type1 prior's taper width, degrees.")
+    parser.add_argument(
         "--background-order", type=int, default=1,
         help="Slowly varying background of this many Legendre terms in every light curve "
              "(and the driver), for trends and variability unrelated to reverberation. 1 (default) "
@@ -225,7 +236,9 @@ def main():
         M_BH=args.m_bh, title=args.title, output_dir=args.output_dir, drw_prior=args.drw_prior,
         marginalise_linear=args.marginalise_linear, redshift=args.redshift, flux_unit=args.flux_unit,
         flux_scale=args.flux_scale, ebv_galactic=args.ebv_galactic, sed_analysis=args.sed_analysis,
-        sed_options=sed_options,
+        sed_options=sed_options, inclination_max=args.inclination_max,
+        inclination_prior=args.inclination_prior, type1_opening_deg=args.type1_opening,
+        type1_width_deg=args.type1_width,
     )
     # --diffuse-continuum with no band names means every band.
     band_names = [b[0] for b in args.band] + [b[0] for b in args.free_lag_band]

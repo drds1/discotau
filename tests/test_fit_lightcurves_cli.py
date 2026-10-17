@@ -79,6 +79,15 @@ def test_diffuse_continuum_can_name_bands_and_defaults_off(cli, files):
     assert kwargs["dense_mass"] is True
 
 
+def test_inclination_prior_flags(cli, files):
+    ef, _ = cli("--m-bh", 1e8, "--band", "g", 4770, files["g"], "--inclination-max", 60,
+                "--inclination-prior", "type1", "--type1-opening", 40, "--type1-width", 8)
+    assert (ef.inclination_max, ef.inclination_prior, ef.type1_opening_deg, ef.type1_width_deg) == \
+        (60.0, "type1", 40.0, 8.0)
+    ef, _ = cli("--m-bh", 1e8, "--band", "g", 4770, files["g"])
+    assert (ef.inclination_max, ef.inclination_prior) == (None, "isotropic")
+
+
 def test_free_lag_bands_and_driver(cli, files):
     ef, _ = cli("--free-lag-band", "Hb", 4861, files["hb"], "--driver", files["x"])
     assert ef.bands["Hb"]["lag_mode"] == "free"
