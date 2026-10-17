@@ -1010,14 +1010,84 @@ def plot_landscape(result: dict, truth: Optional[Dict[str, float]] = None, optim
     return fig, axes
 
 
+def _axis_label(name):
+    return "cos(inclination)" if name == "cos_inclination" else name
+
+
+def _truth_xy(truth, x_name, y_name):
+    """``truth``'s coordinates on the plot's axes, converting an inclination
+    in degrees to ``cos_inclination`` when that is the axis."""
+    if not truth:
+        return None
+    out = []
+    for name in (x_name, y_name):
+        if name in truth:
+            out.append(float(truth[name]))
+        elif name == "cos_inclination" and "inclination" in truth:
+            out.append(float(np.cos(np.deg2rad(truth["inclination"]))))
+        else:
+            return None
+    return tuple(out)
+
+
+def _draw_landscape_3d(ax, x, y, z, x_name, y_name, zlabel, cmap, elev, azim, title, truth=None):
+    """One 3-D landscape panel: surface ``z[i, j]`` at ``(x[j], y[i])`` with a
+    floor contour map and, optionally, a vertical line at ``truth``."""
+    xx, yy = np.meshgrid(x, y)
+    floor, top = float(np.min(z)), float(np.max(z))
+    ax.plot_surface(xx, yy, z, cmap=cmap, linewidth=0, edgecolor="none", antialiased=False, rcount=200, ccount=200,
+                    vmin=floor, vmax=top)
+    ax.contourf(xx, yy, z, zdir="z", offset=floor, cmap=cmap, levels=12, alpha=0.55)
+    if truth is not None:
+        ax.plot([truth[0]] * 2, [truth[1]] * 2, [floor, top], color="white", lw=2.0, label="truth")
+    ax.set_xlabel(_axis_label(x_name))
+    ax.set_ylabel(_axis_label(y_name))
+    ax.set_zlabel(zlabel)
+    ax.set_zlim(floor, top)
+    ax.view_init(elev=elev, azim=azim)
+    ax.set_title(title)
+    for pane in (ax.xaxis.pane, ax.yaxis.pane, ax.zaxis.pane):
+        pane.set_alpha(0.0)
+
+
+def _landscape_height(logp, height, depth):
+    """The surface height from a log density: relative to its peak and floored
+    at ``-depth`` (``"log"``), or the density relative to its peak."""
+    if height not in ("log", "density"):
+        raise ValueError(f"height must be 'log' or 'density', not {height!r}")
+    finite = np.isfinite(logp)
+    z = np.clip(np.where(finite, logp - np.max(logp[finite]), -depth), -depth, 0.0)
+    return np.exp(z) if height == "density" else z
+
+
+def _smooth(a, b, z, upsample):
+    """Cubic interpolation of ``z[i, j]`` on axes ``(a[i], b[j])`` onto a mesh
+    ``upsample`` times finer, clipped to ``z``'s own range."""
+    from scipy.interpolate import RectBivariateSpline
+
+    if upsample <= 1 or len(a) < 4 or len(b) < 4:
+        return a, b, z
+    lo, hi = float(np.min(z)), float(np.max(z))
+    a_f = np.linspace(a[0], a[-1], upsample * len(a))
+    b_f = np.linspace(b[0], b[-1], upsample * len(b))
+    return a_f, b_f, np.clip(RectBivariateSpline(a, b, z, kx=3, ky=3)(a_f, b_f), lo, hi)
+
+
+def _zlabel(height):
+    return "log posterior (rel. peak)" if height == "log" else "posterior density (rel. peak)"
+
+
 def plot_landscape_3d(result: dict, height: str = "log", depth: float = 20.0, upsample: int = 6,
                       truth: Optional[Dict[str, float]] = None, cmap: str = "terrain", dark: bool = True,
                       elev: float = 38.0, azim: float = -125.0, figsize=(13, 5.8)):
-    """The posterior landscape of ``log_mdot`` against ``cos_inclination`` from
-    ``EchoFit.nested_laplace()`` as a 3-D mountain range, the same grids as
-    :func:`plot_landscape` (left, the scout grid over the prior range, right,
-    the final grid on the posterior), each smoothed onto a finer mesh for
-    display, with a contour map on the floor.
+    """The posterior landscape of the nested solve's first two gridded
+    parameters (by default ``log_mdot`` and ``cos_inclination``; any two
+    scalar sites with ``nested_laplace(grid_params=[...])``) as a 3-D mountain
+    range. The same grids as :func:`plot_landscape` (left, the scout grid over
+    the prior range, right, the final grid on the posterior), each smoothed onto
+    a finer mesh for display, with a contour map on the floor. For a pair the
+    solve didn't grid, :func:`plot_sample_landscape_3d` draws the same picture
+    from posterior samples.
 
     Parameters
     ----------
@@ -1034,70 +1104,97 @@ def plot_landscape_3d(result: dict, height: str = "log", depth: float = 20.0, up
         Display mesh points per grid point along each axis (cubic
         interpolation, clipped to the grid's own range).
     truth : dict, optional
-        ``{"log_mdot": ..., "inclination": ...}`` to mark with a vertical line.
+        Values to mark with a vertical line, keyed by parameter name (an
+        ``inclination`` in degrees stands in for ``cos_inclination``).
     dark : bool
         A dark background.
     elev, azim : float
         The viewing angle (degrees).
     """
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  (registers the 3-D projection)
-    from scipy.interpolate import RectBivariateSpline
 
+    names = list(result["names"])
+    if len(names) < 2:
+        raise ValueError(f"plot_landscape_3d needs two gridded parameters, got {names}")
+    y_name, x_name = names[0], names[1]  # rows, columns of the grid
     if height not in ("log", "density"):
         raise ValueError(f"plot_landscape_3d: height must be 'log' or 'density', not {height!r}")
-    names = list(result["names"])
-    if names[:2] != ["log_mdot", "cos_inclination"]:
-        raise ValueError(f"plot_landscape_3d needs log_mdot and cos_inclination gridded first, got {names}")
 
     def surface(grid_axes, logp):
         logp = np.asarray(logp, dtype=float)
         while logp.ndim > 2:  # more gridded parameters: the best slice of the rest
             logp = np.nanmax(np.where(np.isfinite(logp), logp, -np.inf), axis=-1)
-        lm, cosi = (np.asarray(a, dtype=float) for a in grid_axes[:2])
-        finite = np.isfinite(logp)
-        z = np.where(finite, logp - np.max(logp[finite]), -depth)
-        z = np.clip(z, -depth, 0.0)
-        if height == "density":
-            z = np.exp(z)
-        lo, hi = float(np.min(z)), float(np.max(z))
-        if upsample > 1 and len(lm) > 3 and len(cosi) > 3:
-            spline = RectBivariateSpline(lm, cosi, z, kx=3, ky=3)
-            lm_f = np.linspace(lm[0], lm[-1], upsample * len(lm))
-            cos_f = np.linspace(cosi[0], cosi[-1], upsample * len(cosi))
-            lm, cosi, z = lm_f, cos_f, np.clip(spline(lm_f, cos_f), lo, hi)
-        return lm, cosi, z
+        y, x = (np.asarray(a, dtype=float) for a in grid_axes[:2])
+        return _smooth(y, x, _landscape_height(logp, height, depth), upsample)
 
     panels = [(result["passes"][0]["axes"], result["passes"][0]["logp"], "Scout grid: the prior range"),
               (result["fine_axes"], result["fine_logp"], "Final grid: the posterior")]
-    style = plt.style.context("dark_background") if dark else plt.style.context("default")
-    with style:
+    with plt.style.context("dark_background" if dark else "default"):
         fig = plt.figure(figsize=figsize, layout="constrained")
         axes = []
         for k, (grid_axes, logp, title) in enumerate(panels):
             ax = fig.add_subplot(1, 2, k + 1, projection="3d")
-            lm, cosi, z = surface(grid_axes, logp)
+            y, x, z = surface(grid_axes, logp)
             if title.startswith("Scout"):
-                # Show only the log_mdot rows with any relief, plus a margin.
-                rows = np.where(np.any(z > np.min(z) + 1e-9, axis=1))[0]
+                # Show only the rows (first parameter) with any relief, plus a margin.
+                rows = np.where(np.any(z > np.min(z) + 0.01 * np.ptp(z), axis=1))[0]  # ignore smoothing ripples
                 if len(rows):
-                    pad = max(len(lm) // 20, 2)
-                    keep = slice(max(rows[0] - pad, 0), min(rows[-1] + pad + 1, len(lm)))
-                    lm, z = lm[keep], z[keep]
-            c, l = np.meshgrid(cosi, lm)
-            floor = float(np.min(z))
-            ax.plot_surface(c, l, z, cmap=cmap, linewidth=0, edgecolor="none", antialiased=False, rcount=200, ccount=200,
-                            vmin=floor, vmax=float(np.max(z)))
-            ax.contourf(c, l, z, zdir="z", offset=floor, cmap=cmap, levels=12, alpha=0.55)
-            if truth:
-                tc, tl = np.cos(np.deg2rad(truth["inclination"])), truth["log_mdot"]
-                ax.plot([tc, tc], [tl, tl], [floor, float(np.max(z))], color="white", lw=2.0, label="truth")
-            ax.set_xlabel("cos(inclination)")
-            ax.set_ylabel("log_mdot")
-            ax.set_zlabel("log posterior (rel. peak)" if height == "log" else "posterior density (rel. peak)")
-            ax.set_zlim(floor, float(np.max(z)))
-            ax.view_init(elev=elev, azim=azim)
-            ax.set_title(title)
-            for pane in (ax.xaxis.pane, ax.yaxis.pane, ax.zaxis.pane):
-                pane.set_alpha(0.0)
+                    pad = max(len(y) // 20, 2)
+                    keep = slice(max(rows[0] - pad, 0), min(rows[-1] + pad + 1, len(y)))
+                    y, z = y[keep], z[keep]
+            _draw_landscape_3d(ax, x, y, z, x_name, y_name, _zlabel(height), cmap, elev, azim, title,
+                               _truth_xy(truth, x_name, y_name))
             axes.append(ax)
     return fig, axes
+
+
+def plot_sample_landscape_3d(samples: Dict[str, np.ndarray], x: str, y: str, height: str = "log",
+                             depth: float = 8.0, bins: int = 40, smooth: float = 1.5, weights=None,
+                             truth: Optional[Dict[str, float]] = None, cmap: str = "terrain", dark: bool = True,
+                             elev: float = 38.0, azim: float = -125.0, figsize=(7.5, 6.2)):
+    """The posterior landscape of any two scalar parameters as a 3-D mountain
+    range, from posterior samples (NUTS chains, or a direct solve's draws):
+    a 2-D histogram smoothed with a Gaussian of ``smooth`` bins, drawn as in
+    :func:`plot_landscape_3d`. Unlike that, it needs no grid, so it works for
+    any pair, but it is only as good as the samples (a few thousand give a
+    smooth surface, and the ``"log"`` height reaches only as deep as they do,
+    hence the shallower default ``depth``).
+
+    Parameters
+    ----------
+    samples : dict
+        Parameter name -> samples (any shape, flattened), e.g. ``ef.samples``.
+    x, y : str
+        The two parameters. ``"cos_inclination"`` is computed from
+        ``"inclination"`` if only that is present.
+    weights : array, optional
+        Sample weights (e.g. importance weights).
+    bins, smooth : int, float
+        Histogram bins per axis and the Gaussian smoothing width, in bins.
+    """
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  (registers the 3-D projection)
+    from scipy.ndimage import gaussian_filter
+
+    def values(name):
+        if name in samples:
+            return np.ravel(np.asarray(samples[name], dtype=float))
+        if name == "cos_inclination" and "inclination" in samples:
+            return np.cos(np.deg2rad(np.ravel(np.asarray(samples["inclination"], dtype=float))))
+        raise KeyError(f"plot_sample_landscape_3d: no samples of {name!r}")
+
+    xs, ys = values(x), values(y)
+    if np.ptp(xs) == 0 or np.ptp(ys) == 0:
+        raise ValueError(f"plot_sample_landscape_3d: {x if np.ptp(xs) == 0 else y} is fixed, so has no landscape")
+    w = None if weights is None else np.ravel(np.asarray(weights, dtype=float))
+    counts, x_edges, y_edges = np.histogram2d(xs, ys, bins=bins, weights=w)
+    density = gaussian_filter(counts.T, smooth)  # rows: y, columns: x
+    with np.errstate(divide="ignore"):
+        logp = np.log(density)
+    z = _landscape_height(logp, height, depth)
+    xc, yc = 0.5 * (x_edges[1:] + x_edges[:-1]), 0.5 * (y_edges[1:] + y_edges[:-1])
+    with plt.style.context("dark_background" if dark else "default"):
+        fig = plt.figure(figsize=figsize, layout="constrained")
+        ax = fig.add_subplot(1, 1, 1, projection="3d")
+        _draw_landscape_3d(ax, xc, yc, z, x, y, _zlabel(height), cmap, elev, azim,
+                           f"{len(xs)} posterior samples", _truth_xy(truth, x, y))
+    return fig, ax

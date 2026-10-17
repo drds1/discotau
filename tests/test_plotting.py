@@ -242,5 +242,27 @@ def test_plot_landscape_3d_draws_both_grids_as_surfaces():
         plt.close(fig)
     with pytest.raises(ValueError, match="height"):
         plot_landscape_3d(result, height="silly")
-    with pytest.raises(ValueError, match="cos_inclination"):
-        plot_landscape_3d(dict(result, names=["log_mdot", "temperature_slope"]))
+    # Any gridded pair works, labelled by its own names.
+    fig, axes = plot_landscape_3d(dict(result, names=["log_mdot", "temperature_slope"]))
+    assert axes[1].get_xlabel() == "temperature_slope" and axes[1].get_ylabel() == "log_mdot"
+    plt.close(fig)
+    with pytest.raises(ValueError, match="two gridded"):
+        plot_landscape_3d(dict(result, names=["log_mdot"]))
+
+
+def test_plot_sample_landscape_3d_works_for_any_pair():
+    from discotau.plotting import plot_sample_landscape_3d
+
+    rng = np.random.default_rng(0)
+    samples = {"log_mdot": rng.normal(2.0, 0.1, 4000), "inclination": rng.uniform(10, 60, 4000),
+               "dce_fraction_V": rng.beta(6, 4, 4000), "M_fixed": np.full(4000, 3.0)}
+    fig, ax = plot_sample_landscape_3d(samples, "cos_inclination", "log_mdot", truth={"log_mdot": 2.0, "inclination": 30})
+    assert ax.name == "3d" and ax.get_xlabel() == "cos(inclination)"
+    plt.close(fig)
+    fig, ax = plot_sample_landscape_3d(samples, "dce_fraction_V", "log_mdot", height="density")
+    assert ax.get_xlabel() == "dce_fraction_V"
+    plt.close(fig)
+    with pytest.raises(ValueError, match="fixed"):
+        plot_sample_landscape_3d(samples, "M_fixed", "log_mdot")
+    with pytest.raises(KeyError):
+        plot_sample_landscape_3d(samples, "nope", "log_mdot")

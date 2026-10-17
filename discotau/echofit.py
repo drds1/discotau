@@ -1778,12 +1778,22 @@ class EchoFit:
         return plotting.plot_landscape(self.nested_laplace_result, truth=truth, optimum=self._laplace_peak, **kwargs)
 
     def plot_landscape_3d(self, truth=None, **kwargs):
-        """The same landscape as :meth:`plot_landscape`, ``log_mdot`` against
-        ``cos(inclination)``, drawn as a 3-D mountain range -- see
-        :func:`plotting.plot_landscape_3d`."""
+        """The same landscape as :meth:`plot_landscape` (the nested solve's two
+        gridded parameters, ``log_mdot`` against ``cos(inclination)`` by
+        default), drawn as a 3-D mountain range -- see
+        :func:`plotting.plot_landscape_3d`. For any other pair, see
+        :meth:`plot_sample_landscape_3d`."""
         if not self.nested_laplace_result:
             raise RuntimeError("plot_landscape_3d: call .optimise() or .nested_laplace() first.")
         return plotting.plot_landscape_3d(self.nested_laplace_result, truth=truth, **kwargs)
+
+    def plot_sample_landscape_3d(self, x, y, truth=None, **kwargs):
+        """The posterior landscape of any two parameters ``x`` and ``y`` as a
+        3-D mountain range, from this fit's samples (NUTS or a direct solve's
+        draws) -- see :func:`plotting.plot_sample_landscape_3d`."""
+        if not self.samples:
+            raise RuntimeError("plot_sample_landscape_3d: call .fit() or .optimise() first.")
+        return plotting.plot_sample_landscape_3d(self.samples, x, y, truth=truth, **kwargs)
 
     def plot_optimise_restarts(self, param_names=None, **kwargs):
         """Multi-start reproducibility of :meth:`optimise` -- see

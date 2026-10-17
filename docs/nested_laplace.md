@@ -14,6 +14,7 @@ ef.optimise()                                  # nested Laplace (also: ef.nested
 print(ef.nested_laplace_result["k_hat"])       # below 0.7: the result is reliable
 ef.plot_landscape()                            # the Badness-of-Fit map of log_mdot and inclination
 ef.plot_landscape_3d()                         # the same posterior as a 3-D mountain range
+ef.plot_sample_landscape_3d("dce_fraction_V", "log_mdot")  # any pair, from the samples
 ef.plot_corner()                               # every other plot and the report work as after .fit()
 
 ef.optimise(method="laplace")                  # the older single-Gaussian solve
