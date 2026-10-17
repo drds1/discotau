@@ -1373,7 +1373,10 @@ match; `discotau.__version__` reads the installed metadata);
     it is the default, at about twice the modes of 3 per cent (~280 for a 100-day campaign, ~430 for
     Fairall 9). Model comparisons were stable across the grids (free inclination over face-on +58 -> +62,
     flux-matched disc -67 -> -64, flux-matched disc + second reprocessor +51 -> +64): a grid shifts each
-    model's evidence, not their differences. Re-tested on the CREAM-paper synthetic cases afterwards. Fits
+    model's evidence, not their differences. Re-tested on the CREAM-paper synthetic cases (100-day campaigns,
+    `experiments/cream_paper_2026/cache/grid1pct/`, all 40 nested fits): log evidence within 1.5 and log M Mdot
+    within 0.21 sd of the 3 per cent results in every case (A high SNR, B SNR 100, C ugriz, D gaps), so the
+    new default changes nothing where the old one was converged. Fits
     made before this used 3 per cent (NGC 5548, the CREAM-paper reproduction, the code comparison).
 
 ## Known rough edges / things to check before trusting results on real data
