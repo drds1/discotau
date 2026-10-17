@@ -258,6 +258,7 @@ def plot_lightcurve_fits(
     sigma_eff_by_band: Optional[Dict[str, np.ndarray]] = None,
     c_band_samples: Optional[Dict[str, np.ndarray]] = None,
     baseline_samples: Optional[Dict[str, np.ndarray]] = None,
+    psi_component_samples: Optional[Dict[str, Dict[str, np.ndarray]]] = None,
     figsize_per_row=(10, 2.2),
     driver_row_height=1.8,
 ):
@@ -316,6 +317,12 @@ def plot_lightcurve_fits(
         its whole non-reverberating part, offset plus background, on
         ``t_fine``. Drawn in place of that band's flat offset line, as a
         dashed median curve with 68%/95% credible bands.
+    psi_component_samples : dict, optional
+        ``{band_name: {"disc": array, "second": array}}``, each of shape
+        ``(n_samples, len(tau_grid))``: for a band with a second reprocessor
+        (``diffuse_continuum=True``), the disc's and the second reprocessor's
+        parts of its response, which sum to ``psi_samples[band_name]``. Drawn
+        as the disc's median (dashed) and the second reprocessor's (grey).
     """
     ordered, colours = _band_colours(bands)
     n = len(ordered)
@@ -403,7 +410,16 @@ def plot_lightcurve_fits(
         plo95, plo68, pmed, phi68, phi95 = np.percentile(psis, [2.5, 16, 50, 84, 97.5], axis=0)
         ax_psi.fill_between(tau_grid, plo95, phi95, color=colour, alpha=0.15)
         ax_psi.fill_between(tau_grid, plo68, phi68, color=colour, alpha=0.35)
-        ax_psi.plot(tau_grid, pmed, color=colour, lw=1.5)
+        ax_psi.plot(tau_grid, pmed, color=colour, lw=1.5, label="total")
+        parts = (psi_component_samples or {}).get(name)
+        if parts is not None:
+            # A band with a second reprocessor: its response split into the
+            # disc's part (dashed) and the second reprocessor's (grey).
+            ax_psi.plot(tau_grid, np.median(parts["disc"], axis=0), color=colour, lw=1.2, ls="--", label="disc")
+            second = np.median(parts["second"], axis=0)
+            ax_psi.fill_between(tau_grid, 0.0, second, color="0.5", alpha=0.45, lw=0, label="second reprocessor")
+            if not any(ax.get_legend() for ax in psi_axes):
+                ax_psi.legend(fontsize=7, loc="upper right")
         ax_psi.set_ylabel(r"$\psi(\tau)$")
         ax_psi.grid(alpha=0.6)
         psi_axes.append(ax_psi)
@@ -416,7 +432,7 @@ def plot_lightcurve_fits(
     axes[-1, 0].set_xlabel("time [days]")
     axes[-1, 1].set_xlabel(r"$\tau$ [days]")
     fig.suptitle("Posterior-predictive light curves and response functions")
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0, 1, 0.985))  # leave room for the suptitle above the top panel's own title
     return fig, axes
 
 

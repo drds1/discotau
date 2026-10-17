@@ -266,3 +266,21 @@ def test_plot_sample_landscape_3d_works_for_any_pair():
         plot_sample_landscape_3d(samples, "M_fixed", "log_mdot")
     with pytest.raises(KeyError):
         plot_sample_landscape_3d(samples, "nope", "log_mdot")
+
+
+def test_lightcurve_fits_split_a_second_reprocessors_response():
+    rng = np.random.default_rng(0)
+    t = np.linspace(0, 50, 40)
+    tau = np.linspace(0, 20, 60)
+    bands = {name: dict(t=t, y=rng.normal(size=40), yerr=np.full(40, 0.1), wavelength=wl, lag_mode="physical")
+             for name, wl in (("g", 4770.0), ("i", 7625.0))}
+    y_pred = {name: rng.normal(size=(30, 80)) for name in bands}
+    disc = np.exp(-tau / 2.0)[None, :].repeat(30, 0) * 0.3
+    second = np.exp(-0.5 * ((tau - 10.0) / 3.0) ** 2)[None, :].repeat(30, 0) * 0.05
+    psi = {"g": disc + second, "i": disc}
+    fig, axes = plotting.plot_lightcurve_fits(bands, np.linspace(0, 50, 80), y_pred, tau, psi,
+                                              psi_component_samples={"g": dict(disc=disc, second=second)})
+    labels = [line.get_label() for line in axes[0, 1].get_lines()]
+    assert "disc" in labels and axes[0, 1].get_legend() is not None
+    assert "disc" not in [line.get_label() for line in axes[1, 1].get_lines()]  # no second reprocessor in i
+    plt.close(fig)

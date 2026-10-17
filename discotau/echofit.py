@@ -31,7 +31,7 @@ from .model import reverberation_model
 from .inference import run_mcmc, run_mcmc_chunked
 from .forward_model import (
     transfer_coeffs, compute_echo, driver_at, tophat_response_free, transfer_matrices, fourier_basis,
-    legendre_background_basis, mix_diffuse_continuum,
+    legendre_background_basis, mix_diffuse_continuum, lognormal_response,
 )
 from .grid_utils import estimate_dt_min, graded_tau_grid, check_tau_grid_resolution, hybrid_frequency_grid
 from .nested_laplace import fd_hessian as _fd_hessian, lbfgs_sd as _lbfgs_sd
@@ -1896,7 +1896,7 @@ class EchoFit:
         def sample(site):
             return jnp.asarray(self.samples[site])[idx]
 
-        y_pred_samples, psi_samples, baseline_samples = {}, {}, {}
+        y_pred_samples, psi_samples, baseline_samples, psi_components = {}, {}, {}, {}
         for name, d in self.bands.items():
             S_band, C_band = sample(f"S_{name}"), sample(f"C_{name}")
             if d["lag_mode"] == "physical":
@@ -1904,9 +1904,12 @@ class EchoFit:
             else:
                 psi = jax.vmap(free_draw)(sample(f"tau_{name}"))
             if d.get("diffuse_continuum", False):
-                # The same mixture as the model (model.reverberation_model).
-                psi = jax.vmap(lambda p, f, m, w: mix_diffuse_continuum(p, self.tau_grid, f, m, w))(
-                    psi, sample(f"dce_fraction_{name}"), sample(f"dce_delay_{name}"), sample(f"dce_width_{name}"))
+                # The same mixture as the model (model.reverberation_model), with
+                # the second reprocessor's part kept so the plot can show it.
+                f, m, w = (sample(f"dce_{k}_{name}") for k in ("fraction", "delay", "width"))
+                psi = jax.vmap(lambda p, f_, m_, w_: mix_diffuse_continuum(p, self.tau_grid, f_, m_, w_))(psi, f, m, w)
+                psi_second = jax.vmap(lambda f_, m_, w_: f_ * lognormal_response(self.tau_grid, m_, w_))(f, m, w)
+                psi_components[name] = dict(disc=np.asarray(psi - psi_second), second=np.asarray(psi_second))
             y_pred = jax.vmap(echo_draw)(S, C, psi, S_band, C_band)
             basis_fine = self._background_basis(d, t=t_fine)
             if basis_fine is not None:
@@ -1962,5 +1965,5 @@ class EchoFit:
             driver_samples=np.asarray(driver_samples), driver_points=driver_points,
             driver_sigma_eff=driver_sigma_eff, sigma_eff_by_band=sigma_eff_by_band or None,
             c_band_samples=c_band_samples, baseline_samples=baseline_samples or None,
-            **kwargs,
+            psi_component_samples=psi_components or None, **kwargs,
         )
