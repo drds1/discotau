@@ -49,7 +49,9 @@ PERIOD_MAX_FACTOR = 2.0
 # build_grid()'s default highest driver frequency (cycles per day) and the
 # fractional step of the grid's logarithmic part; see its f_max docstring.
 F_MAX_CYCLES_PER_DAY = 2.0
-FREQ_LOG_STEP = 0.03
+# The grid's logarithmic step: 0.01 since October 2026 (was 0.03, which left the evidence ~55 short of
+# converged on Fairall 9's 649-day campaign and its free lags ~0.45 d long; CLAUDE.md decision #35).
+FREQ_LOG_STEP = 0.01
 
 # add_lightcurve()/add_driver_lightcurve()'s default background order: a linear
 # trend in every light curve, for trends longer than the driver's longest period.
@@ -546,7 +548,8 @@ class EchoFit:
             responses rise within hours.
         log_step : float
             Fractional frequency step of the grid's logarithmic part (default
-            0.03). Smaller steps add modes at high frequency.
+            0.01; it was 0.03 until October 2026, converged on short campaigns but
+            not on a 649-day one). Smaller steps add modes at high frequency.
         period_max : float, optional
             Longest driver period (days); sets the frequency grid's lower
             bound ``w_min = 2 pi / period_max``. Defaults to twice the

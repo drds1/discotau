@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from discotau import run_manager
-from discotau.echofit import DEFAULT_BACKGROUND_ORDER, F_MAX_CYCLES_PER_DAY, EchoFit
+from discotau.echofit import DEFAULT_BACKGROUND_ORDER, F_MAX_CYCLES_PER_DAY, FREQ_LOG_STEP, EchoFit
 from discotau.grid_utils import hybrid_frequency_grid
 
 
@@ -54,7 +54,7 @@ def test_build_grid_default_reaches_f_max_whatever_the_cadence():
         ef.build_grid(n_tau=30)
         w = np.asarray(ef.freqs)
         f_top = w.max() / (2.0 * np.pi)
-        assert F_MAX_CYCLES_PER_DAY / (1 + 0.03) < f_top <= F_MAX_CYCLES_PER_DAY
+        assert F_MAX_CYCLES_PER_DAY / (1 + FREQ_LOG_STEP) < f_top <= F_MAX_CYCLES_PER_DAY
         assert np.isclose(w.min(), 2.0 * np.pi / (2.0 * (cadence_end - 1.0 + 0.5 * (cadence_end - 1.0))))
 
 
@@ -91,3 +91,15 @@ def test_checkpoints_saved_before_the_background_default_resume_without_one(tmp_
     np.savez(tmp_path / "driver.npz", t=t, y=t, yerr=t + 1)
     assert run_manager.load_bands_npz(tmp_path / "bands.npz")["g"]["background_order"] == 0
     assert run_manager.load_driver_npz(tmp_path / "driver.npz")["background_order"] == 0
+
+
+def test_default_log_step_is_one_per_cent():
+    """The default was 0.03 until October 2026; 0.01 is converged on a 649-day
+    campaign (CLAUDE.md decision #35). A change here needs that study redone."""
+    assert FREQ_LOG_STEP == 0.01
+    ef = _echofit(400.0)
+    ef.build_grid(n_tau=30)
+    w = np.asarray(ef.freqs)
+    steps = np.diff(w)
+    log_part = steps > 1.0001 * (2.0 * np.pi / (2.0 * (399.0 + 0.5 * 399.0)))
+    assert np.allclose(steps[log_part] / w[:-1][log_part], 0.01, rtol=1e-3)  # float32 frequencies

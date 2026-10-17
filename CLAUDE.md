@@ -1353,6 +1353,29 @@ match; `discotau.__version__` reads the installed metadata);
     analysis at the user's request. It changes the answer only where the data constrain i weakly, and there
     the posterior on i is the prior handed back, so state it as an assumption.
 
+35. **The driver grid's logarithmic step is 1 per cent, not 3 (`FREQ_LOG_STEP = 0.01`, October 2026, found
+    on Fairall 9 and agreed by the user).** The step sets where the grid leaves the harmonics, at a period of
+    `log_step * period_max`. Decision #29's tests were 100-day campaigns (crossover at 9 days, converged). On
+    Fairall 9's 649-day campaign 3 per cent crosses over at ~40 days and thins the 10-40 day band where the
+    echoes have structure. Convergence study (face-on disc, order-2 background, nested solve; free lags,
+    single Gaussian), `experiments/fairall_9/` labels `_ls1`, `_ls0p5`, `_ht10`, `_ht5`:
+
+    | grid | modes | disc lnZ | log_mdot | free-lag lnZ | free lag U, V (d) |
+    |---|---|---|---|---|---|
+    | 3% | 181 | 491.5 | 2.36 | 395.3 | 1.84, 1.92 |
+    | harmonics to 10 d, then 3% | 232 | 533.4 | 2.40 | 436.5 | 1.45, 1.52 |
+    | harmonics to 5 d, then 3% | 340 | 546.3 | 2.36 | 439.4 | 1.55, 1.76 |
+    | 1% | 428 | 546.2 | 2.36 | 453.5 | 1.49, 1.51 |
+    | 0.5% | 717 | 547.4 | 2.34 | 453.9 | 1.39, 1.46 |
+
+    The disc's temperature never moved. Harmonics down to 5 days converged the disc but not the free lags (the
+    free-lag model fits UVW2 directly, so it needs the sub-5-day driver finely); 1 per cent converged both, so
+    it is the default, at about twice the modes of 3 per cent (~280 for a 100-day campaign, ~430 for
+    Fairall 9). Model comparisons were stable across the grids (free inclination over face-on +58 -> +62,
+    flux-matched disc -67 -> -64, flux-matched disc + second reprocessor +51 -> +64): a grid shifts each
+    model's evidence, not their differences. Re-tested on the CREAM-paper synthetic cases afterwards. Fits
+    made before this used 3 per cent (NGC 5548, the CREAM-paper reproduction, the code comparison).
+
 ## Known rough edges / things to check before trusting results on real data
 
 - `synthetic.py`'s ground truth is generated with the *same* forward model

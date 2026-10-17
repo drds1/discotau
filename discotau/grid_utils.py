@@ -81,9 +81,12 @@ def hybrid_frequency_grid(period_max: float, f_max: float, log_step: float) -> n
     is the natural basis; finer low-frequency spacing only adds near-duplicate
     modes. At high frequency the echoes are smoothed by the response and don't
     resolve individual harmonics: there a log grid at ``log_step = 0.03`` gave
-    the same posteriors as linear spacing on the CREAM paper's synthetic tests,
-    with far fewer modes (linear spacing to 2 cycles/day needs
-    ``2 period_max`` modes, ~1700 for an NGC 5548-length campaign).
+    the same posteriors as linear spacing on the CREAM paper's 100-day synthetic
+    tests, with far fewer modes (linear spacing to 2 cycles/day needs
+    ``2 period_max`` modes, ~1700 for an NGC 5548-length campaign). On Fairall 9's
+    649-day campaign 0.03 was not converged (it thins the spacing below
+    harmonic from a ~40-day period, where the echoes have structure); 0.01 was,
+    to within 1.2 in log evidence of 0.005, hence ``build_grid``'s default.
 
     Parameters
     ----------

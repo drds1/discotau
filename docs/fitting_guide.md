@@ -75,7 +75,7 @@ flowchart TD
 | `diffuse_continuum` | `add_lightcurve` | `False` | delays look too long for a disc, or there is a lag excess near the Balmer jump (broad-line-region diffuse continuum) | 7 |
 | `background_order` | `add_lightcurve`, `add_driver_lightcurve` | `1` | `0` only if you are sure there are no trends; `2` for curved ones | 7 |
 | `f_max` | `build_grid` | 2 cycles/day | black holes much lighter than ~1e7 Msun (raise it); speed on low-SNR data (lower it) | 5 |
-| `log_step` | `build_grid` | 0.03 | rarely | 5 |
+| `log_step` | `build_grid` | 0.01 | rarely | 5 |
 | `n_freq` | `build_grid` | unset (grid sized from `period_max`, `f_max`) | small, fast fits only: gives the old log grid with this many frequencies | 5 |
 | `n_tau` | `build_grid` | 400 | a resolution warning appears | 5 |
 | `tau_max` | `build_grid` | half the baseline | lags are known to be much shorter (sharper grid) | 5 |
@@ -295,7 +295,7 @@ during the run. Use it for anything long enough that losing it would hurt.
 
 ## 5. Grid settings (`build_grid`)
 
-### Frequency grid: `period_max`, `f_max` (2 cycles/day) and `log_step` (0.03)
+### Frequency grid: `period_max`, `f_max` (2 cycles/day) and `log_step` (0.01)
 
 The driver is a sum of sinusoids from a longest period $P_\text{max}$ up to
 $f_\text{max}$ cycles per day. Below a crossover frequency they are the
@@ -326,7 +326,19 @@ echoes are smoothed by the response and don't resolve individual harmonics:
 on the CREAM paper's synthetic tests a log grid there gave the same
 posteriors as harmonics all the way up, while harmonics to 2 cycles/day
 would need $2P_\text{max}$ modes (~1700 for an NGC 5548-length campaign, and
-a solve hundreds of times dearer). The default grid has ~120 to ~170 modes.
+a solve hundreds of times dearer).
+
+**Why a 1 per cent step.** The step sets where the spacing leaves the
+harmonics, at a period of $s\,P_\text{max}$. The CREAM paper's tests were
+100-day campaigns, where a 3 per cent step (the default until October 2026)
+crosses over at a 9-day period and was converged. On Fairall 9's 649-day
+campaign it crosses over at about 40 days, so the grid thins out across the
+10 to 40 day band where the echoes have structure: the evidence rose by about
+55 at a 1 per cent step and by only 1 more at 0.5 per cent, and the free lags
+in U and V shortened by about 0.45 days (2 to 3 sigma). The disc's
+temperature didn't move. A 1 per cent step was converged for both, so it is
+the default. It costs about twice the modes of 3 per cent: ~280 for a
+100-day campaign, ~320 for NGC 5548 and ~430 for Fairall 9.
 
 **Why 2 cycles/day, whatever the cadence.** The echoes carry the driver's
 variability down to the sharpest feature of the response, its rise near
