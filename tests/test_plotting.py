@@ -10,6 +10,7 @@ heatmap always).
 
 import warnings
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
@@ -214,3 +215,32 @@ def test_report_includes_free_lag_corner_but_not_disk_corner_for_free_lag_only_f
     assert "corner_free_lag.png" in html
     assert "corner_bands.png" in html
     assert "fourier_correlation.png" in html
+
+
+def _two_basin_landscape():
+    """A nested_laplace_result-like dict with two basins (no fit needed)."""
+    def logp(lm, cosi):
+        a = -0.5 * (((lm - 2.0) / 0.3) ** 2 + ((cosi - 0.9) / 0.05) ** 2)
+        b = -0.5 * (((lm - 4.5) / 0.4) ** 2 + ((cosi - 0.25) / 0.08) ** 2) - 3.0
+        return np.logaddexp(a, b)
+
+    scout = (np.linspace(-10.0, 15.0, 26), np.linspace(0.17, 1.0, 12))
+    fine = (np.linspace(1.0, 5.5, 20), np.linspace(0.17, 1.0, 15))
+    grid = lambda axes: logp(*np.meshgrid(*axes, indexing="ij"))  # noqa: E731
+    return dict(names=["log_mdot", "cos_inclination"], passes=[dict(axes=scout, logp=grid(scout))],
+                fine_axes=fine, fine_logp=grid(fine))
+
+
+def test_plot_landscape_3d_draws_both_grids_as_surfaces():
+    from discotau.plotting import plot_landscape_3d
+
+    result = _two_basin_landscape()
+    for height in ("log", "density"):
+        fig, axes = plot_landscape_3d(result, height=height, truth={"log_mdot": 2.0, "inclination": 25.8})
+        assert len(axes) == 2 and all(ax.name == "3d" for ax in axes)
+        assert all(ax.collections for ax in axes)  # the surfaces and floor contours
+        plt.close(fig)
+    with pytest.raises(ValueError, match="height"):
+        plot_landscape_3d(result, height="silly")
+    with pytest.raises(ValueError, match="cos_inclination"):
+        plot_landscape_3d(dict(result, names=["log_mdot", "temperature_slope"]))

@@ -524,6 +524,7 @@ default, and when to change it.
 ef.optimise()                          # nested Laplace: grid + Laplace + importance weights
 print(ef.nested_laplace_result["k_hat"])  # below 0.7: the result is reliable
 ef.plot_landscape()                    # Badness-of-Fit map of log_mdot against inclination
+ef.plot_landscape_3d()                 # the same posterior as a 3-D mountain range
 ef.plot_lightcurve_fits()              # every plot works on the result, as after .fit()
 ef.optimise(method="laplace")          # quicker: L-BFGS + a single Gaussian
 ef.fit(init_from_optimum=True)         # optional: full NUTS, started at the optimum

@@ -1008,3 +1008,96 @@ def plot_landscape(result: dict, truth: Optional[Dict[str, float]] = None, optim
     handles += [h for h in axes[1].get_legend_handles_labels()[0]]
     axes[1].legend(handles=handles, loc="upper left", frameon=True, fontsize=8)
     return fig, axes
+
+
+def plot_landscape_3d(result: dict, height: str = "log", depth: float = 20.0, upsample: int = 6,
+                      truth: Optional[Dict[str, float]] = None, cmap: str = "terrain", dark: bool = True,
+                      elev: float = 38.0, azim: float = -125.0, figsize=(13, 5.8)):
+    """The posterior landscape of ``log_mdot`` against ``cos_inclination`` from
+    ``EchoFit.nested_laplace()`` as a 3-D mountain range, the same grids as
+    :func:`plot_landscape` (left, the scout grid over the prior range, right,
+    the final grid on the posterior), each smoothed onto a finer mesh for
+    display, with a contour map on the floor.
+
+    Parameters
+    ----------
+    result : dict
+        ``ef.nested_laplace_result``.
+    height : str
+        ``"log"`` (default): the log posterior relative to its peak, floored
+        at ``-depth``, so every basin within ``depth`` shows as a mountain.
+        ``"density"``: the posterior density relative to its peak, which shows
+        only where the mass is.
+    depth : float
+        How far below the peak the ``"log"`` landscape reaches.
+    upsample : int
+        Display mesh points per grid point along each axis (cubic
+        interpolation, clipped to the grid's own range).
+    truth : dict, optional
+        ``{"log_mdot": ..., "inclination": ...}`` to mark with a vertical line.
+    dark : bool
+        A dark background.
+    elev, azim : float
+        The viewing angle (degrees).
+    """
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  (registers the 3-D projection)
+    from scipy.interpolate import RectBivariateSpline
+
+    if height not in ("log", "density"):
+        raise ValueError(f"plot_landscape_3d: height must be 'log' or 'density', not {height!r}")
+    names = list(result["names"])
+    if names[:2] != ["log_mdot", "cos_inclination"]:
+        raise ValueError(f"plot_landscape_3d needs log_mdot and cos_inclination gridded first, got {names}")
+
+    def surface(grid_axes, logp):
+        logp = np.asarray(logp, dtype=float)
+        while logp.ndim > 2:  # more gridded parameters: the best slice of the rest
+            logp = np.nanmax(np.where(np.isfinite(logp), logp, -np.inf), axis=-1)
+        lm, cosi = (np.asarray(a, dtype=float) for a in grid_axes[:2])
+        finite = np.isfinite(logp)
+        z = np.where(finite, logp - np.max(logp[finite]), -depth)
+        z = np.clip(z, -depth, 0.0)
+        if height == "density":
+            z = np.exp(z)
+        lo, hi = float(np.min(z)), float(np.max(z))
+        if upsample > 1 and len(lm) > 3 and len(cosi) > 3:
+            spline = RectBivariateSpline(lm, cosi, z, kx=3, ky=3)
+            lm_f = np.linspace(lm[0], lm[-1], upsample * len(lm))
+            cos_f = np.linspace(cosi[0], cosi[-1], upsample * len(cosi))
+            lm, cosi, z = lm_f, cos_f, np.clip(spline(lm_f, cos_f), lo, hi)
+        return lm, cosi, z
+
+    panels = [(result["passes"][0]["axes"], result["passes"][0]["logp"], "Scout grid: the prior range"),
+              (result["fine_axes"], result["fine_logp"], "Final grid: the posterior")]
+    style = plt.style.context("dark_background") if dark else plt.style.context("default")
+    with style:
+        fig = plt.figure(figsize=figsize, layout="constrained")
+        axes = []
+        for k, (grid_axes, logp, title) in enumerate(panels):
+            ax = fig.add_subplot(1, 2, k + 1, projection="3d")
+            lm, cosi, z = surface(grid_axes, logp)
+            if title.startswith("Scout"):
+                # Show only the log_mdot rows with any relief, plus a margin.
+                rows = np.where(np.any(z > np.min(z) + 1e-9, axis=1))[0]
+                if len(rows):
+                    pad = max(len(lm) // 20, 2)
+                    keep = slice(max(rows[0] - pad, 0), min(rows[-1] + pad + 1, len(lm)))
+                    lm, z = lm[keep], z[keep]
+            c, l = np.meshgrid(cosi, lm)
+            floor = float(np.min(z))
+            ax.plot_surface(c, l, z, cmap=cmap, linewidth=0, edgecolor="none", antialiased=False, rcount=200, ccount=200,
+                            vmin=floor, vmax=float(np.max(z)))
+            ax.contourf(c, l, z, zdir="z", offset=floor, cmap=cmap, levels=12, alpha=0.55)
+            if truth:
+                tc, tl = np.cos(np.deg2rad(truth["inclination"])), truth["log_mdot"]
+                ax.plot([tc, tc], [tl, tl], [floor, float(np.max(z))], color="white", lw=2.0, label="truth")
+            ax.set_xlabel("cos(inclination)")
+            ax.set_ylabel("log_mdot")
+            ax.set_zlabel("log posterior (rel. peak)" if height == "log" else "posterior density (rel. peak)")
+            ax.set_zlim(floor, float(np.max(z)))
+            ax.view_init(elev=elev, azim=azim)
+            ax.set_title(title)
+            for pane in (ax.xaxis.pane, ax.yaxis.pane, ax.zaxis.pane):
+                pane.set_alpha(0.0)
+            axes.append(ax)
+    return fig, axes

@@ -1777,6 +1777,14 @@ class EchoFit:
             raise RuntimeError("plot_landscape: call .optimise() or .nested_laplace() first.")
         return plotting.plot_landscape(self.nested_laplace_result, truth=truth, optimum=self._laplace_peak, **kwargs)
 
+    def plot_landscape_3d(self, truth=None, **kwargs):
+        """The same landscape as :meth:`plot_landscape`, ``log_mdot`` against
+        ``cos(inclination)``, drawn as a 3-D mountain range -- see
+        :func:`plotting.plot_landscape_3d`."""
+        if not self.nested_laplace_result:
+            raise RuntimeError("plot_landscape_3d: call .optimise() or .nested_laplace() first.")
+        return plotting.plot_landscape_3d(self.nested_laplace_result, truth=truth, **kwargs)
+
     def plot_optimise_restarts(self, param_names=None, **kwargs):
         """Multi-start reproducibility of :meth:`optimise` -- see
         :func:`plotting.plot_optimise_restarts`."""
