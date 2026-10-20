@@ -42,7 +42,7 @@ from numpyro.infer.util import initialize_model
 
 from discotau.echofit import EchoFit
 from discotau.forward_model import (
-    disk_temperature_profile, driver_at, lag_scaling, transfer_coeffs, transfer_matrices,
+    disk_temperature_profile, driver_at, lag_scaling, transfer_coeffs, transfer_matrices, typical_log_mdot,
     _schwarzschild_radius_light_days,
 )
 from discotau.grid_utils import graded_tau_grid
@@ -52,7 +52,7 @@ from discotau.synthetic import generate_synthetic_dataset
 
 BANDS = {"u": 3500.0, "g": 4770.0, "r": 6200.0, "i": 7625.0, "z": 9000.0}
 M_BH = 1.0e8
-KEY_PARAMS = ("log_mdot", "cos_inclination", "sigma_drw", "S_g")
+KEY_PARAMS = ("log_mdot_msun_yr", "cos_inclination", "sigma_drw", "S_g")
 
 # One fixed colour per entity, identical in every chart.
 COLOURS = {
@@ -145,7 +145,7 @@ def likelihood_accuracy(data):
     and QR of [D^-1/2 M; I] with the residual form (as implemented)."""
     ef = _make_echofit(data)
     kwargs = ef._model_kwargs()
-    nonlinear = dict(sigma_drw=jnp.asarray(0.5), log_mdot=jnp.asarray(0.0), cos_inclination=jnp.asarray(0.7))
+    nonlinear = dict(sigma_drw=jnp.asarray(0.5), log_mdot_msun_yr=jnp.asarray(float(typical_log_mdot(M_BH))), cos_inclination=jnp.asarray(0.7))
     nonlinear.update({f"S_{n}": jnp.asarray(1.0) for n in BANDS})
     names = list(BANDS)
     n_freq = kwargs["freqs"].shape[0]
@@ -356,7 +356,7 @@ def chart_ess_per_second(nuts, outdir):
 
 
 def chart_posteriors(fits, truth_log_mdot, outdir):
-    params = [("log_mdot", "log_mdot"), ("inclination", "inclination (deg)"), ("sigma_drw", "sigma_drw"), ("C_g", "C_g")]
+    params = [("log_mdot_msun_yr", "log_mdot_msun_yr"), ("inclination", "inclination (deg)"), ("sigma_drw", "sigma_drw"), ("C_g", "C_g")]
     order = list(FITS) + ["laplace"]
     fig, axes = plt.subplots(1, len(params), figsize=(12, 3.0))
     for ax, (p, label) in zip(axes, params):
@@ -365,14 +365,14 @@ def chart_posteriors(fits, truth_log_mdot, outdir):
         bins = np.linspace(lo, hi, 30)
         for f in order:
             ax.hist(fits[f][1][p], bins=bins, density=True, histtype="step", lw=2, color=COLOURS[f], label=LABELS[f])
-        if p == "log_mdot":
+        if p == "log_mdot_msun_yr":
             ax.axvline(truth_log_mdot, color="0.2", lw=1, ls="--")
         ax.set_xlabel(label, fontsize=9)
         ax.set_yticks([])
         _style(ax)
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, frameon=False, fontsize=8, loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.12))
-    fig.suptitle("Posterior agreement across all four methods (dashed: true log_mdot)", x=0.01, ha="left", fontsize=11)
+    fig.suptitle("Posterior agreement across all four methods (dashed: true log_mdot_msun_yr)", x=0.01, ha="left", fontsize=11)
     fig.tight_layout()
     fig.savefig(outdir / "posterior_agreement.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -409,9 +409,9 @@ def chart_blackbody(outdir):
     T = np.geomspace(1000.0, 1.0e5, 600)
     rgb = blackbody_to_colour(T)
     r_in = 3.0 * float(_schwarzschild_radius_light_days(M_BH))
-    tau_ref = float(lag_scaling(0.0, 5000.0, M_BH))
+    tau_ref = float(lag_scaling(typical_log_mdot(M_BH), 5000.0, M_BH))
     r = np.geomspace(r_in * 1.02, 6 * tau_ref, 400)
-    T_r = np.asarray(disk_temperature_profile(r, 0.0, 5000.0, M_BH))
+    T_r = np.asarray(disk_temperature_profile(r, typical_log_mdot(M_BH), 5000.0, M_BH))
 
     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8, 4.8), gridspec_kw={"height_ratios": [1, 2.2]})
     ax0.imshow(rgb[None, :, :], aspect="auto", extent=(np.log10(T[0]), np.log10(T[-1]), 0, 1))
@@ -429,7 +429,7 @@ def chart_blackbody(outdir):
     ax1.text(1.08, T_r.max() * 0.5, "Wien radius at 5000 A", color="0.85", fontsize=8)
     ax1.set_xlabel("radius / Wien radius at 5000 A", fontsize=9)
     ax1.set_ylabel("T (K)", fontsize=9)
-    ax1.set_title("Disk temperature profile (log_mdot = 0), each point in its true colour", loc="left", fontsize=11)
+    ax1.set_title("Disk temperature profile (typical accretion rate), each point in its true colour", loc="left", fontsize=11)
     ax1.grid(alpha=0.3, lw=0.6, color="0.6")
     fig.tight_layout()
     fig.savefig(outdir / "blackbody_colours.png", dpi=150)
@@ -446,7 +446,7 @@ def main():
     data = generate_synthetic_dataset(bands=BANDS, M_BH=M_BH, n_obs_per_band=100, n_freq=60, n_tau=400, noise_level=0.05, seed=0)
     n = 100 if args.quick else 500
     results = dict(settings=dict(n_bands=len(BANDS), n_obs_per_band=100, n_freq=60, n_tau=400,
-                                 num_warmup=n, num_samples=n, truth_log_mdot=float(data["truth"]["log_mdot"])))
+                                 num_warmup=n, num_samples=n, truth_log_mdot=float(data["truth"]["log_mdot_msun_yr"])))
     print("1/6 gradient cost per leapfrog step ...", flush=True)
     results["gradient_costs"] = gradient_costs(data)
     print("2/6 transfer_coeffs scaling ...", flush=True)
@@ -458,7 +458,7 @@ def main():
     print("5/6 optimise() direct solve ...", flush=True)
     results["laplace"], fits["laplace"] = laplace_run(data, 1000)
     results["posterior_summary"] = {
-        f: {p: [float(np.mean(fits[f][1][p])), float(np.std(fits[f][1][p]))] for p in ("log_mdot", "inclination", "sigma_drw", "S_g", "C_g")}
+        f: {p: [float(np.mean(fits[f][1][p])), float(np.std(fits[f][1][p]))] for p in ("log_mdot_msun_yr", "inclination", "sigma_drw", "S_g", "C_g")}
         for f in fits
     }
     print("6/6 charts ...", flush=True)

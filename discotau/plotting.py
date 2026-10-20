@@ -594,7 +594,7 @@ def plot_mcmc_diagnostics(
 
 def plot_corner(
     samples: Dict[str, np.ndarray],
-    param_names: Sequence[str] = ("log_mdot", "inclination"),
+    param_names: Sequence[str] = ("log_mdot_msun_yr", "inclination"),
     true_values: Optional[Dict[str, float]] = None,
     figsize=None,
 ):
@@ -617,7 +617,7 @@ def plot_corner(
         one of their components here).
     param_names : sequence of str
         Which parameters to plot, in order (also sets the grid size).
-        Defaults to ``("log_mdot", "inclination")``, the two parameters
+        Defaults to ``("log_mdot_msun_yr", "inclination")``, the two parameters
         shared across every physical-mode band and the ones Starkey+2016's
         own Figure 6 uses -- only present if at least one band used
         ``lag_mode="physical"`` (CLAUDE.md decision #7); raises a clear
@@ -826,11 +826,11 @@ def plot_optimise_restarts(
     samples : dict
         ``ef.samples`` (the Laplace posterior draws).
     param_names : sequence of str, optional
-        Parameters to show; defaults to whichever of ``log_mdot``,
+        Parameters to show; defaults to whichever of ``log_mdot_msun_yr``,
         ``inclination`` and ``sigma_drw`` exist.
     """
     if param_names is None:
-        param_names = [p for p in ("log_mdot", "inclination", "sigma_drw") if p in samples]
+        param_names = [p for p in ("log_mdot_msun_yr", "inclination", "sigma_drw") if p in samples]
     n = 1 + len(param_names)
     fig, axes = plt.subplots(1, n, figsize=figsize or (3.4 * n, 3.2))
     axes = np.atleast_1d(axes)
@@ -940,7 +940,7 @@ def plot_disc_sed(result: dict, bands: Dict[str, dict], figsize=(10, 7.5)):
 
 def plot_landscape(result: dict, truth: Optional[Dict[str, float]] = None, optimum: Optional[Dict[str, float]] = None,
                    max_delta_bof: float = 60.0, figsize=(11, 4.6)):
-    """Badness-of-Fit landscape of ``log_mdot`` against inclination from
+    """Badness-of-Fit landscape of ``log_mdot_msun_yr`` against inclination from
     ``EchoFit.nested_laplace()``: at every grid point the other nonlinear
     parameters are optimised and integrated (Laplace) and the linear ones
     integrated exactly, so this is the marginal posterior, shown as
@@ -957,7 +957,7 @@ def plot_landscape(result: dict, truth: Optional[Dict[str, float]] = None, optim
     result : dict
         ``ef.nested_laplace_result``.
     truth : dict, optional
-        ``{"log_mdot": ..., "inclination": ...}`` to mark (synthetic data).
+        ``{"log_mdot_msun_yr": ..., "inclination": ...}`` to mark (synthetic data).
     optimum : dict, optional
         The single-Gaussian solve's peak (``optimise(method="laplace")``),
         marked for comparison.
@@ -965,8 +965,8 @@ def plot_landscape(result: dict, truth: Optional[Dict[str, float]] = None, optim
         Colour scale ceiling.
     """
     names = list(result["names"])
-    if names[:2] != ["log_mdot", "cos_inclination"]:
-        raise ValueError(f"plot_landscape needs log_mdot and cos_inclination gridded first, got {names}")
+    if names[:2] != ["log_mdot_msun_yr", "cos_inclination"]:
+        raise ValueError(f"plot_landscape needs log_mdot_msun_yr and cos_inclination gridded first, got {names}")
     if len(names) > 2:
         warnings.warn("plot_landscape: more than two gridded parameters; showing the best slice of the rest.")
 
@@ -1002,21 +1002,21 @@ def plot_landscape(result: dict, truth: Optional[Dict[str, float]] = None, optim
                        colors="#eb6834", linewidths=widths, zorder=3)
         else:
             # The scout grid spans the whole prior range: show only the rows
-            # (log_mdot) with any colour, plus one cell either side.
+            # (log_mdot_msun_yr) with any colour, plus one cell either side.
             used = np.where(np.any(dbof < max_delta_bof, axis=1))[0]
             if len(used):
                 lo, hi = max(used[0] - 1, 0), min(used[-1] + 2, len(lm_edges) - 1)
                 y_view = (lm_edges[lo], lm_edges[hi])
         if truth:
-            ax.plot(truth["inclination"], truth["log_mdot"], marker="*", ms=14, color="black", mec="white",
+            ax.plot(truth["inclination"], truth["log_mdot_msun_yr"], marker="*", ms=14, color="black", mec="white",
                     mew=1.0, ls="none", zorder=5, label="truth")
         if optimum is not None:
-            ax.plot(float(np.asarray(optimum["inclination"])), float(np.asarray(optimum["log_mdot"])), marker="X",
+            ax.plot(float(np.asarray(optimum["inclination"])), float(np.asarray(optimum["log_mdot_msun_yr"])), marker="X",
                     ms=10, color="#e34948", mec="white", mew=1.0, ls="none", zorder=5, label="single-Gaussian peak")
         ax.set_xlim(inc_edges.min(), inc_edges.max())
         ax.set_ylim(*(y_view or (lm_edges.min(), lm_edges.max())))
         ax.set_xlabel("inclination (degrees)")
-        ax.set_ylabel("log_mdot")
+        ax.set_ylabel("log_mdot_msun_yr")
         ax.set_title(title)
         ax.grid(alpha=0.6)
     fig.colorbar(mesh, ax=axes, label="Delta BOF (= -2 Delta log posterior)", shrink=0.9)
@@ -1097,7 +1097,7 @@ def plot_landscape_3d(result: dict, height: str = "log", depth: float = 20.0, up
                       truth: Optional[Dict[str, float]] = None, cmap: str = "terrain", dark: bool = True,
                       elev: float = 38.0, azim: float = -125.0, figsize=(13, 5.8)):
     """The posterior landscape of the nested solve's first two gridded
-    parameters (by default ``log_mdot`` and ``cos_inclination``; any two
+    parameters (by default ``log_mdot_msun_yr`` and ``cos_inclination``; any two
     scalar sites with ``nested_laplace(grid_params=[...])``) as a 3-D mountain
     range. The same grids as :func:`plot_landscape` (left, the scout grid over
     the prior range, right, the final grid on the posterior), each smoothed onto

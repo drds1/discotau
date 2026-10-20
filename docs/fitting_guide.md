@@ -30,7 +30,7 @@ for name, wav, t, y, yerr in my_bands:
 ef.build_grid()                               # watch for resolution warnings
 
 ef.optimise()                                 # fast, no MCMC (nested Laplace); check ef.nested_laplace_result["k_hat"] < 0.7
-ef.plot_landscape()                           # Badness-of-Fit map of log_mdot against inclination
+ef.plot_landscape()                           # Badness-of-Fit map of log_mdot_msun_yr against inclination
 ef.plot_lightcurve_fits()
 
 ef.fit()                                      # the full posterior (NUTS, dense mass)
@@ -40,7 +40,7 @@ print(ef.extra_fields["diverging"].sum(), "divergences")
 Every default is the fastest *correct* choice for full MCMC that has been
 measured. `.optimise()` is the fast direct solve to reach for first: by
 default a nested Laplace approximation, which follows a curved valley or a
-second mode in `log_mdot` and inclination, with an importance-sampling check
+second mode in `log_mdot_msun_yr` and inclination, with an importance-sampling check
 (`k_hat`) that says when to trust it (section 3,
 [nested_laplace.md](nested_laplace.md)). `.optimise(method="laplace")` is
 faster still but fits a single Gaussian, which understates the uncertainty
@@ -99,7 +99,7 @@ flowchart TD
 
 1. **`.fit()`: NUTS on every parameter** (the default). Samples the exact
    posterior, given enough samples. On weakly constraining data, where the
-   posterior of `log_mdot` and inclination has two modes, a chain may cross
+   posterior of `log_mdot_msun_yr` and inclination has two modes, a chain may cross
    between them rarely or never, so it cannot weigh them: check several
    chains' R-hat.
 2. **`.optimise(method="laplace")`: single-Gaussian direct solve, no MCMC**
@@ -117,7 +117,7 @@ flowchart TD
    one took ~7 steps per sample.
 4. **`.optimise()`, the default direct solve: a nested Laplace
    approximation, no MCMC** (also `.nested_laplace()`). Grids
-   `log_mdot` and inclination (and `temperature_slope` if fitted), integrates
+   `log_mdot_msun_yr` and inclination (and `temperature_slope` if fitted), integrates
    the other nonlinear parameters by a Laplace approximation at every grid
    point and the linear ones exactly, then importance-weights its draws
    against the exact posterior (PSIS, with the `k_hat` diagnostic). It follows
@@ -158,7 +158,7 @@ logits of bounded ones). Full derivation:
 | | `.fit()` (dense NUTS, 500 + 500) | `.optimise(method="laplace")` |
 |---|---|---|
 | Wall time, including compilation | 56 s | 27 s |
-| `log_mdot` | 0.193 ± 0.011 | 0.194 ± 0.012 |
+| `log_mdot_msun_yr` | −1.760 ± 0.011 | −1.759 ± 0.012 |
 | inclination (°) | 59.0 ± 13.5 | 55.3 ± 14.0 |
 | Exact? | yes, given enough samples | Gaussian approximation in $z$ |
 
@@ -312,7 +312,7 @@ the baseline. $T + \tau_\text{max}$ is the window the driver must cover
 $\tau_\text{max}$ earlier), and the factor of 2 lets the series represent
 trends longer than that window, which a red-noise driver always has. Until
 October 2026 the longest period was $T$ itself; on synthetic random-walk
-data that biased `log_mdot` and the inclination high, the fit absorbing the
+data that biased `log_mdot_msun_yr` and the inclination high, the fit absorbing the
 trends into long responses (`scripts/synthetic_recovery_grid.py`). The fit
 at the truth improved up to $P_\text{max} \approx 2(T + \tau_\text{max})$
 and was flat beyond it. Pass `period_max` to set it directly. Trends longer
@@ -407,8 +407,8 @@ compares the fitted $P(\omega)$ with the coefficients.
 ### `lag_mode`: `"physical"` (default) or `"free"`
 
 - **`"physical"`**: the band's mean lag follows the thin-disk law
-  $\tau \propto M_\text{BH}^{2/3}\mkern3mu \dot M^{1/3}\mkern3mu \lambda^{4/3}$ through the
-  shared `log_mdot`, and its shape through the shared inclination. Use it
+  $\tau \propto (M_\text{BH}\dot M)^{1/3}\mkern3mu \lambda^{4/3}$ through the
+  shared `log_mdot_msun_yr`, and its shape through the shared inclination. Use it
   for continuum bands reprocessed by the disk.
 - **`"free"`**: the band gets its own lag `tau_{band}`. Use it for
   emission lines, or anything not on the disk law.
@@ -474,7 +474,7 @@ literature and a synthetic recovery study, in
   so `.optimise()` integrates them out exactly. **It is `1` (a linear
   trend) by default since October 2026.** A red-noise driver has trends
   longer than the driver's longest period; on the CREAM paper's synthetic
-  random-walk tests at SNR 100 they pulled `log_mdot` towards high values,
+  random-walk tests at SNR 100 they pulled `log_mdot_msun_yr` towards high values,
   and the linear background removed most of that pull. On data without
   such trends it changed nothing beyond slightly wider error bars. The
   evidence did *not* reliably prefer it where it helped (the Occam penalty
@@ -498,9 +498,17 @@ amplitude prior.
 ## 8. Model constants and pins: `M_BH`, `fixed_params`
 
 `M_BH` is always a fixed input, never fitted. It sets the lag scale
-together with `log_mdot` ($\tau \propto M_\text{BH}^{2/3}\dot M^{1/3}$), so
+together with `log_mdot_msun_yr` ($\tau \propto (M_\text{BH}\dot M)^{1/3}$), so
 the two are degenerate from lags alone. Take it from the literature, and
-remember that `log_mdot`'s posterior is conditional on it.
+remember that `log_mdot_msun_yr`'s posterior is conditional on it.
+
+Units are physical throughout: `M_BH` in solar masses, the accretion rate as
+`log_mdot_msun_yr` (log10 of Ṁ in solar masses per year; the samples also
+carry `mdot_msun_yr`), with $T_1^4 = 3GM_\text{BH}\dot M/(8\pi\sigma\,(1\,\text{light-day})^3)$
+(`forward_model.disk_t1_kelvin`; `log_mdot_from_t1` is its inverse). Its prior
+is a Normal of 5 dex around `forward_model.typical_log_mdot(M_BH)`, about 0.5 per
+cent of Eddington. Before October 2026 the parameter was a dimensionless
+`log_mdot`; an old value converts as `log_mdot + typical_log_mdot(M_BH)`.
 
 `fixed_params={"name": value}` pins any scalar parameter to a constant (for
 example `{"inclination": 30.0}` for a face-on assumption, or a known

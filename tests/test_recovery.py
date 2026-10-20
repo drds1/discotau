@@ -6,12 +6,12 @@ consistent with the injected ground truth.
 This is deliberately more than a "does it crash" smoke test -- it checks:
   * no divergent transitions (a red flag for a badly parameterised model
     or a mismatched frequency grid -- see grid_utils.estimate_dt_min),
-  * the well-identified parameter (log_mdot, which sets the mean lag) is
+  * the well-identified parameter (log_mdot_msun_yr, which sets the mean lag) is
     recovered close to truth,
   * the posterior-predictive light curve actually fits the data to within
     a reasonable multiple of the injected noise.
 
-log_mdot is the parameter checked tightly here because the mean lag is the
+log_mdot_msun_yr is the parameter checked tightly here because the mean lag is the
 dominant signal in this forward model (see CLAUDE.md point 4); inclination
 (which only affects lag *skew*, a subtler effect) and the DRW hyperparameters
 sigma_drw/tau_drw are comparatively weakly identified from a couple of
@@ -24,12 +24,13 @@ import pytest
 
 from discotau.synthetic import generate_synthetic_dataset
 from discotau.echofit import EchoFit
+from discotau.forward_model import typical_log_mdot
 
 
 def _make_synthetic(seed: int):
     return generate_synthetic_dataset(
         M_BH=1.0e9,  # large enough that mean lags >> sampling cadence (see below)
-        log_mdot_true=0.0,
+        log_mdot_msun_yr_true=float(typical_log_mdot(1.0e9)),
         inclination_true=35.0,
         sigma_drw_true=0.3,
         tau_drw_true=30.0,
@@ -83,13 +84,13 @@ def test_mcmc_recovers_synthetic_truth():
     diverging = np.asarray(ef.extra_fields["diverging"])
     assert diverging.mean() < 0.05, f"{diverging.sum()}/{len(diverging)} divergent transitions"
 
-    for name in ("log_mdot", "inclination", "sigma_drw", "tau_drw", "S", "C"):
+    for name in ("log_mdot_msun_yr", "inclination", "sigma_drw", "tau_drw", "S", "C"):
         assert np.all(np.isfinite(np.asarray(ef.samples[name])))
 
-    # -- the well-identified parameter: mean lag / log_mdot --------------
-    log_mdot_mean = float(ef.samples["log_mdot"].mean())
-    assert abs(log_mdot_mean - truth["log_mdot"]) < 0.3, (
-        f"log_mdot posterior mean {log_mdot_mean:.3f} far from truth {truth['log_mdot']:.3f}"
+    # -- the well-identified parameter: mean lag / log_mdot_msun_yr --------------
+    log_mdot_mean = float(ef.samples["log_mdot_msun_yr"].mean())
+    assert abs(log_mdot_mean - truth["log_mdot_msun_yr"]) < 0.3, (
+        f"log_mdot_msun_yr posterior mean {log_mdot_mean:.3f} far from truth {truth['log_mdot_msun_yr']:.3f}"
     )
 
     # -- posterior-predictive fit quality --------------------------------

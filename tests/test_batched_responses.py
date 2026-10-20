@@ -49,7 +49,7 @@ def test_skew_normal_response_is_batched_too():
 
 
 def test_a_response_that_cannot_be_mapped_falls_back_to_per_band_calls():
-    def numpy_response(tau_grid, log_mdot, wavelength, inclination, M_BH):
+    def numpy_response(tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH):
         # float() of a traced wavelength fails under jax.vmap / jax.jit.
         centre = 0.001 * float(wavelength)
         psi = np.exp(-0.5 * ((np.asarray(tau_grid) - centre) / 0.5) ** 2)

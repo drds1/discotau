@@ -38,7 +38,7 @@ from discotau.plotting import wavelength_to_colour  # noqa: E402
 
 METHOD_STYLE = {"nuts": dict(ls="-", marker="o", label="NUTS"),
                 "optimise": dict(ls="--", marker="s", label="optimise()", mfc="white")}
-PARAMS = {"log_mdot": "log(M Mdot)", "inclination": "inclination (deg)"}
+PARAMS = {"log_mdot_msun_yr": "log(M Mdot)", "inclination": "inclination (deg)"}
 # The 2016 paper's results (Table 4, mean of its three chains' sd), at mean 1-day cadence.
 PAPER_2016 = {("gi", 700): (0.03, 4.8), ("gi", 100): (0.18, 14.0), ("ugriz", 100): (0.09, 8.1)}
 
@@ -71,8 +71,8 @@ def load(cache: Path) -> list[dict]:
 
 
 def _scale(p):
-    # Report log_mdot as log(M Mdot); the offset does not change sds or errors.
-    return grid.LOG_MMDOT_OFFSET if p == "log_mdot" else 0.0
+    # Report log_mdot_msun_yr as log(M Mdot); the offset does not change sds or errors.
+    return grid.LOG_MMDOT_OFFSET if p == "log_mdot_msun_yr" else 0.0
 
 
 def _agg(rows, band_set, method, cadence, snr, key):

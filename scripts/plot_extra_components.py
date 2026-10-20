@@ -29,13 +29,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from discotau import EchoFit
-from discotau.forward_model import legendre_background_basis, lognormal_response, mix_diffuse_continuum, response_function
+from discotau.forward_model import (
+    legendre_background_basis, lognormal_response, mix_diffuse_continuum, response_function, typical_log_mdot,
+)
 from discotau.plotting import wavelength_to_colour
 from discotau.synthetic import generate_synthetic_dataset
 
 OUT = Path(__file__).resolve().parents[1] / "docs" / "images"
 M_BH = 1e8
-LOG_MDOT, INCLINATION = 0.3, 35.0
+LOG_MDOT, INCLINATION = float(typical_log_mdot(M_BH)) + 0.3, 35.0  # log10 Msun/yr, degrees
 BANDS = {"u": 3543.0, "g": 4770.0, "r": 6231.0, "i": 7625.0, "z": 9134.0}
 # Diffuse continuum (fraction, median delay in days, width in dex) rising with
 # wavelength, as Cackett, Zoghbi & Ulrich (2022) found; slow trends in u and z.
@@ -114,7 +116,7 @@ def fit(data, extras: bool):
     s = ef.samples
     out = dict(seconds=time.perf_counter() - t0, log_evidence=ef.log_evidence,
                restarts_agreeing=ef.optimise_timings["restarts_agreeing"],
-               log_mdot=[float(np.mean(s["log_mdot"])), float(np.std(s["log_mdot"]))],
+               log_mdot_msun_yr=[float(np.mean(s["log_mdot_msun_yr"])), float(np.std(s["log_mdot_msun_yr"]))],
                inclination=[float(np.mean(s["inclination"])), float(np.std(s["inclination"]))])
     if extras:
         out["dce"] = {n: {k: [float(np.mean(s[f"dce_{k}_{n}"])), float(np.std(s[f"dce_{k}_{n}"]))]
@@ -130,14 +132,14 @@ def run_study():
     for seed in SEEDS:
         for scenario in ("plain", "extras"):
             kwargs = dict(diffuse_continuum=DCE, background=BACKGROUND) if scenario == "extras" else {}
-            data = generate_synthetic_dataset(bands=BANDS, M_BH=M_BH, log_mdot_true=LOG_MDOT, inclination_true=INCLINATION,
+            data = generate_synthetic_dataset(bands=BANDS, M_BH=M_BH, log_mdot_msun_yr_true=LOG_MDOT, inclination_true=INCLINATION,
                                               n_obs_per_band=120, t_span=250.0, noise_level=0.03, seed=seed, **kwargs)
             for model in ("without components", "with components"):
                 out, ef = fit(data, extras=model == "with components")
                 out.update(seed=seed, data=scenario, model=model)
                 results.append(out)
-                print(f"seed {seed} data {scenario:6s} fit {model:18s}: log_mdot {out['log_mdot'][0]:.3f}"
-                      f"+/-{out['log_mdot'][1]:.3f}, i {out['inclination'][0]:.1f}+/-{out['inclination'][1]:.1f}, "
+                print(f"seed {seed} data {scenario:6s} fit {model:18s}: log_mdot_msun_yr {out['log_mdot_msun_yr'][0]:.3f}"
+                      f"+/-{out['log_mdot_msun_yr'][1]:.3f}, i {out['inclination'][0]:.1f}+/-{out['inclination'][1]:.1f}, "
                       f"lnZ {out['log_evidence']:.1f}, {out['seconds']:.0f} s", flush=True)
                 if example is None and scenario == "extras" and model == "with components":
                     example = (data, ef)
@@ -152,8 +154,8 @@ def fig_recovery(results):
     colours = ["tab:blue", "tab:cyan", "tab:red", "tab:green"]
     labels = ["no extras in data, fitted without", "no extras in data, fitted with",
               "extras in data, fitted without", "extras in data, fitted with"]
-    limits = {"log_mdot": (0.0, 1.0), "inclination": (0.0, 80.0)}
-    for ax, key, truth, xl in ((axes[0], "log_mdot", LOG_MDOT, "log mdot"), (axes[1], "inclination", INCLINATION, "inclination (deg)")):
+    limits = {"log_mdot_msun_yr": (LOG_MDOT - 0.3, LOG_MDOT + 0.7), "inclination": (0.0, 80.0)}
+    for ax, key, truth, xl in ((axes[0], "log_mdot_msun_yr", LOG_MDOT, "log Mdot (Msun/yr)"), (axes[1], "inclination", INCLINATION, "inclination (deg)")):
         lo, hi = limits[key]
         for j, ((data, model), colour, label) in enumerate(zip(combos, colours, labels)):
             rows = [r for r in results if r["data"] == data and r["model"] == model]
@@ -196,13 +198,13 @@ def main():
         fig_recovery(json.loads((OUT / "extra_components_study.json").read_text())["results"])
         return
     if "--example-only" in sys.argv:  # refit and redraw only the example-fit figure (~1 minute)
-        data = generate_synthetic_dataset(bands=BANDS, M_BH=M_BH, log_mdot_true=LOG_MDOT, inclination_true=INCLINATION,
+        data = generate_synthetic_dataset(bands=BANDS, M_BH=M_BH, log_mdot_msun_yr_true=LOG_MDOT, inclination_true=INCLINATION,
                                           n_obs_per_band=120, t_span=250.0, noise_level=0.03, seed=SEEDS[0],
                                           diffuse_continuum=DCE, background=BACKGROUND)
         fig_example((data, fit(data, extras=True)[1]))
         return
     fig_responses()
-    fig_background(generate_synthetic_dataset(bands=BANDS, M_BH=M_BH, log_mdot_true=LOG_MDOT,
+    fig_background(generate_synthetic_dataset(bands=BANDS, M_BH=M_BH, log_mdot_msun_yr_true=LOG_MDOT,
                                               inclination_true=INCLINATION, n_obs_per_band=120, t_span=250.0,
                                               noise_level=0.03, seed=SEEDS[0], diffuse_continuum=DCE,
                                               background=BACKGROUND))
@@ -210,7 +212,7 @@ def main():
     fig_recovery(results)
     fig_example(example)
     (OUT / "extra_components_study.json").write_text(json.dumps(dict(
-        truth=dict(log_mdot=LOG_MDOT, inclination=INCLINATION, dce=DCE, background=BACKGROUND),
+        truth=dict(log_mdot_msun_yr=LOG_MDOT, inclination=INCLINATION, dce=DCE, background=BACKGROUND),
         results=results), indent=1))
 
 

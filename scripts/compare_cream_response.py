@@ -90,12 +90,12 @@ def cream_psi(exe: Path, ntau: int, inclination: float) -> tuple[np.ndarray, np.
     return data[:, 0], data[:, 1]
 
 
-def pycream_psi(tau: np.ndarray, inclination: float, log_mdot: float, **kwargs) -> np.ndarray:
+def pycream_psi(tau: np.ndarray, inclination: float, log_mdot_msun_yr: float, **kwargs) -> np.ndarray:
     # Viscous-only, as CREAM is run here (irradiation temperature 0): the
     # comparison of docs/cream_response_comparison.md predates irradiation
     # becoming discotau's default (October 2026).
     kwargs.setdefault("include_irradiation", False)
-    return np.asarray(thin_disk_response(jnp.asarray(tau), log_mdot, WAVELENGTH, inclination, M_BH, **kwargs))
+    return np.asarray(thin_disk_response(jnp.asarray(tau), log_mdot_msun_yr, WAVELENGTH, inclination, M_BH, **kwargs))
 
 
 def stats(tau, psi):
@@ -111,8 +111,8 @@ def main():
     parser.add_argument("--cream-source", type=Path, required=True, help="path to CREAM's cream_f90.f90")
     args = parser.parse_args()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    log_mdot = brentq(lambda x: float(disk_t1_kelvin(x, M_BH)) - T1, -10, 15)
-    results = {"log_mdot": log_mdot, "T1": T1, "M_BH": M_BH, "wavelength": WAVELENGTH, "grids": {}}
+    log_mdot_msun_yr = brentq(lambda x: float(disk_t1_kelvin(x, M_BH)) - T1, -10, 15)
+    results = {"log_mdot_msun_yr": log_mdot_msun_yr, "T1": T1, "M_BH": M_BH, "wavelength": WAVELENGTH, "grids": {}}
     with tempfile.TemporaryDirectory() as tmp:
         exe = build_cream(args.cream_source, Path(tmp))
         fig, axes = plt.subplots(2, len(INCLINATIONS), figsize=(11, 5), sharex=True)
@@ -126,9 +126,9 @@ def main():
                 # old one (a Gaussian in tau, 0.1 of the Wien radius, and h_x = 0 in
                 # the delay, before September 2026) and the current one (causal
                 # log-normal smoothing and the exact lamppost delay).
-                p_matched = pycream_psi(tau, inc, log_mdot, smoothing_days=dtau, delay_lamppost_height=False)
-                p_old = pycream_psi(tau, inc, log_mdot, smoothing_frac=0.1, delay_lamppost_height=False)
-                p_default = pycream_psi(tau, inc, log_mdot)
+                p_matched = pycream_psi(tau, inc, log_mdot_msun_yr, smoothing_days=dtau, delay_lamppost_height=False)
+                p_old = pycream_psi(tau, inc, log_mdot_msun_yr, smoothing_frac=0.1, delay_lamppost_height=False)
+                p_default = pycream_psi(tau, inc, log_mdot_msun_yr)
                 # CREAM normalises to the peak and forces psi[0] = 0; show discotau the
                 # same way for the shape comparison.
                 cn = c / c.max()

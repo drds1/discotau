@@ -1,15 +1,15 @@
 """
 Injection-recovery grid on synthetic light curves, in the style of Starkey,
 Horne & Villforth (2016, MNRAS 456, 1960; the CREAM paper, section 4-5): how
-well are the disc's accretion rate (``log_mdot``, equivalently M Mdot) and
+well are the disc's accretion rate (``log_mdot_msun_yr``, equivalently M Mdot) and
 inclination recovered as the photometric signal-to-noise ratio, the mean
 sampling cadence and the set of filters change, and does the direct solve
 (``EchoFit.optimise()``) give the same answers as NUTS (``EchoFit.fit()``)?
 
 Each configuration is (filter set, SNR, mean cadence, seed). Following the
 2016 paper:
-- the truth is M_BH = 1e8 Msun, M Mdot = 1e8 Msun^2/yr (``log_mdot`` = 1.953,
-  see ``TRUE_LOG_MDOT``), inclination 30 degrees, temperature slope 3/4;
+- the truth is M_BH = 1e8 Msun, Mdot = 1 Msun/yr, so M Mdot = 1e8 Msun^2/yr
+  (``TRUE_LOG_MDOT``), inclination 30 degrees, temperature slope 3/4;
 - the driver is a random walk (sigma = 1 after one day) simulated on a
   0.05-day grid, independently of the fit's Fourier-series driver, and each
   echo is a brute-force numerical convolution with ``thin_disk_response``
@@ -24,7 +24,7 @@ configurations with the same seed share the same driver (common random
 numbers, as the paper reused one driver across its tests).
 
 Each fit writes ``<out>/<config>/<method>.json`` (posterior summaries, timing,
-diagnostics) and ``<method>_samples.npz`` (the log_mdot and inclination
+diagnostics) and ``<method>_samples.npz`` (the log_mdot_msun_yr and inclination
 draws); existing results are skipped, so an interrupted run resumes.
 
 Usage (from the repository root):
@@ -46,17 +46,10 @@ from pathlib import Path
 
 import numpy as np
 
-# The dimensionless log_mdot in discotau maps onto M Mdot through the disc's
-# temperature at one light-day, T_1 = (3 G M Mdot / (8 pi sigma (1 ld)^3))^(1/4)
-# (forward_model.disk_t1_kelvin). For M_BH = 1e8 that gives
-# log10(M Mdot / Msun^2 yr^-1) = log_mdot + LOG_MMDOT_OFFSET.
-_G, _MSUN, _YR, _SIGMA_SB, _LD = 6.674e-8, 1.989e33, 3.156e7, 5.6704e-5, 2.998e10 * 86400.0
-_T1_MMDOT_1E8 = (3 * _G * 1e8 * _MSUN ** 2 / _YR / (8 * np.pi * _SIGMA_SB * _LD ** 3)) ** 0.25
-_T1_LOG_MDOT_0 = 5795.545829  # disk_t1_kelvin(0.0, 1e8), Kelvin
-LOG_MMDOT_OFFSET = 8.0 - 4.0 * np.log10(_T1_MMDOT_1E8 / _T1_LOG_MDOT_0)
-
 M_BH = 1.0e8
-TRUE_LOG_MDOT = 8.0 - LOG_MMDOT_OFFSET  # M Mdot = 1e8 Msun^2/yr, as the 2016 paper
+# log10(M Mdot / Msun^2 yr^-1) = log_mdot_msun_yr + log10(M_BH).
+LOG_MMDOT_OFFSET = float(np.log10(M_BH))
+TRUE_LOG_MDOT = 0.0  # 1 Msun/yr, so M Mdot = 1e8 Msun^2/yr, as the 2016 paper
 TRUE_INCLINATION = 30.0
 
 # Starkey, Horne & Villforth (2016) Table 2: wavelength (A), mean AB, rms (mag).
@@ -79,7 +72,7 @@ TAU_MAX = 30.0  # days, the fit's lag grid; the responses are ~0 well before thi
 # The driver's longest Fourier period and number of frequencies for the main
 # fits (optimise and nuts). A longest period of only the 100-day baseline
 # cannot represent a random walk's longer trends, and the fit absorbed them
-# into long, inclined responses (log_mdot ~2.8 too high on one seed); see the
+# into long, inclined responses (log_mdot_msun_yr ~2.8 too high on one seed); see the
 # build_grid() docstring. These fits were run before build_grid()'s default
 # became 2 (baseline + tau_max), and use a longer period still.
 PERIOD_MAX = 400.0  # days, ~3 x (T_SPAN + TAU_MAX)
@@ -87,7 +80,7 @@ N_FREQ = 80
 JITTER = 0.3  # each time is i * cadence + U(-JITTER, JITTER) * cadence
 OPTIMISE = dict(num_samples=1000, num_restarts=4)
 # NUTS samples the linear-marginalised model (marginalise_linear=True; the same
-# posterior for log_mdot and inclination). The default, sampled model was
+# posterior for log_mdot_msun_yr and inclination). The default, sampled model was
 # unusable here: warmup collapsed the step size to ~1e-5 with every iteration
 # at the 1023-step ceiling (~20 s per iteration on g and i alone), whereas the
 # marginalised model needs ~7 steps per sample.
@@ -180,15 +173,15 @@ def run_one(band_set: str, snr: float, cadence: float, seed: int, method: str, o
         else:
             ef.fit(rng_seed=seed, num_chains=1, progress_bar=False, generate_report=False, **NUTS)
     seconds = time.perf_counter() - t0
-    s = {k: np.asarray(ef.samples[k], dtype=np.float64) for k in ("log_mdot", "inclination")}
+    s = {k: np.asarray(ef.samples[k], dtype=np.float64) for k in ("log_mdot_msun_yr", "inclination")}
     meta = dict(band_set=band_set, snr=snr, cadence=cadence, seed=seed, method=method, seconds=seconds,
                 n_obs=int(sum(len(d["t"]) for d in bands.values())),
-                log_mdot=_summary(s["log_mdot"], TRUE_LOG_MDOT),
+                log_mdot_msun_yr=_summary(s["log_mdot_msun_yr"], TRUE_LOG_MDOT),
                 inclination=_summary(s["inclination"], TRUE_INCLINATION),
                 warnings=sorted({str(w.message).splitlines()[0][:200] for w in caught}))
     if method.startswith("optimise"):
         meta.update(timings=ef.optimise_timings, potential=float(ef.optimise_result.fun),
-                    optimum={k: float(ef.optimum[k]) for k in ("log_mdot", "inclination")})
+                    optimum={k: float(ef.optimum[k]) for k in ("log_mdot_msun_yr", "inclination")})
     elif method == "nested_laplace":
         r = ef.nested_laplace_result
         meta.update(timings=r["timings"], k_hat=r["k_hat"], ess=r["ess"], log_evidence=r["log_evidence_is"])
@@ -201,8 +194,8 @@ def run_one(band_set: str, snr: float, cadence: float, seed: int, method: str, o
     dest.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(dest / f"{method}_samples.npz", **s)
     (dest / f"{method}.json").write_text(json.dumps(meta, indent=1, default=float))
-    lm, inc = meta["log_mdot"], meta["inclination"]
-    print(f"{label} {method}: {seconds:.0f}s  log_mdot {lm['mean']:.3f}+/-{lm['sd']:.3f} (true {TRUE_LOG_MDOT:.3f})"
+    lm, inc = meta["log_mdot_msun_yr"], meta["inclination"]
+    print(f"{label} {method}: {seconds:.0f}s  log_mdot_msun_yr {lm['mean']:.3f}+/-{lm['sd']:.3f} (true {TRUE_LOG_MDOT:.3f})"
           f"  i {inc['mean']:.1f}+/-{inc['sd']:.1f} (true {TRUE_INCLINATION:g})", flush=True)
 
 

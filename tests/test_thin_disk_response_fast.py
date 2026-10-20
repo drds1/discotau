@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 
 from discotau.forward_model import (
+    typical_log_mdot,
     thin_disk_response,
     build_thin_disk_response_table,
     thin_disk_response_from_table,
@@ -42,7 +43,7 @@ def _mean_lag(tau_grid, psi):
 def test_fast_response_is_causal_and_normalised():
     fast = build_thin_disk_response_fast(M_BH, **_SMALL_TABLE_KWARGS)
     tau_grid = jnp.linspace(-2.0, 15.0, 300)
-    psi = np.asarray(fast(tau_grid, 0.0, 5000.0, 30.0, M_BH))
+    psi = np.asarray(fast(tau_grid, typical_log_mdot(M_BH), 5000.0, 30.0, M_BH))
     tau_np = np.asarray(tau_grid)
     assert not np.isnan(psi).any()
     assert np.all(psi[tau_np < 0.0] == 0.0)
@@ -50,20 +51,21 @@ def test_fast_response_is_causal_and_normalised():
 
 
 def test_fast_response_mean_lag_matches_exact_reasonably_well():
-    """Near the table's own reference point (log_mdot=0, wavelength=5000,
+    """Near the table's own reference point (typical_log_mdot(M_BH), wavelength=5000,
     matching build_thin_disk_response_table's defaults), the stretch factor
     is close to 1 and interpolation is between adjacent templates -- this is
     the "easy" regime, so the mean lag should match closely, not just be in
     the right ballpark."""
     fast = build_thin_disk_response_fast(M_BH, **_SMALL_TABLE_KWARGS)
     tau_grid = jnp.linspace(-2.0, 15.0, 300)
-    for log_mdot, wavelength, inclination in [(0.0, 5000.0, 20.0), (0.2, 5000.0, 45.0)]:
-        psi_slow = thin_disk_response(tau_grid, log_mdot, wavelength, inclination, M_BH)
-        psi_fast = fast(tau_grid, log_mdot, wavelength, inclination, M_BH)
+    for above_typical, wavelength, inclination in [(0.0, 5000.0, 20.0), (0.2, 5000.0, 45.0)]:
+        log_mdot_msun_yr = typical_log_mdot(M_BH) + above_typical
+        psi_slow = thin_disk_response(tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH)
+        psi_fast = fast(tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH)
         lag_slow = _mean_lag(tau_grid, psi_slow)
         lag_fast = _mean_lag(tau_grid, psi_fast)
         assert abs(lag_fast - lag_slow) / lag_slow < 0.1, (
-            f"log_mdot={log_mdot} wavelength={wavelength} inclination={inclination}: "
+            f"log_mdot_msun_yr={log_mdot_msun_yr} wavelength={wavelength} inclination={inclination}: "
             f"mean lag exact={lag_slow:.3f} fast={lag_fast:.3f}"
         )
 
@@ -78,12 +80,12 @@ def test_fast_response_approximation_degrades_away_from_reference():
     fast = build_thin_disk_response_fast(M_BH, **_SMALL_TABLE_KWARGS)
     tau_grid = jnp.linspace(-2.0, 15.0, 300)
 
-    psi_slow_near = np.asarray(thin_disk_response(tau_grid, 0.0, 5000.0, 30.0, M_BH))
-    psi_fast_near = np.asarray(fast(tau_grid, 0.0, 5000.0, 30.0, M_BH))
+    psi_slow_near = np.asarray(thin_disk_response(tau_grid, typical_log_mdot(M_BH), 5000.0, 30.0, M_BH))
+    psi_fast_near = np.asarray(fast(tau_grid, typical_log_mdot(M_BH), 5000.0, 30.0, M_BH))
     near_diff = np.max(np.abs(psi_slow_near - psi_fast_near))
 
-    psi_slow_far = np.asarray(thin_disk_response(tau_grid, -0.5, 7000.0, 85.0, M_BH))
-    psi_fast_far = np.asarray(fast(tau_grid, -0.5, 7000.0, 85.0, M_BH))
+    psi_slow_far = np.asarray(thin_disk_response(tau_grid, typical_log_mdot(M_BH) - 0.5, 7000.0, 85.0, M_BH))
+    psi_fast_far = np.asarray(fast(tau_grid, typical_log_mdot(M_BH) - 0.5, 7000.0, 85.0, M_BH))
     far_diff = np.max(np.abs(psi_slow_far - psi_fast_far))
 
     assert far_diff > near_diff
@@ -100,13 +102,13 @@ def test_fast_response_has_nonzero_gradients():
     fast = build_thin_disk_response_fast(M_BH, **_SMALL_TABLE_KWARGS)
     tau_grid = jnp.linspace(0.0, 15.0, 300)
 
-    def mean_lag_mdot(log_mdot):
-        return jnp.sum(fast(tau_grid, log_mdot, 5000.0, 30.0, M_BH) * tau_grid)
+    def mean_lag_mdot(log_mdot_msun_yr):
+        return jnp.sum(fast(tau_grid, log_mdot_msun_yr, 5000.0, 30.0, M_BH) * tau_grid)
 
     def mean_lag_incl(inclination):
-        return jnp.sum(fast(tau_grid, 0.0, 5000.0, inclination, M_BH) * tau_grid)
+        return jnp.sum(fast(tau_grid, typical_log_mdot(M_BH), 5000.0, inclination, M_BH) * tau_grid)
 
-    assert float(jax.grad(mean_lag_mdot)(0.0)) != 0.0
+    assert float(jax.grad(mean_lag_mdot)(typical_log_mdot(M_BH))) != 0.0
     assert float(jax.grad(mean_lag_incl)(30.0)) != 0.0
     assert float(jax.grad(mean_lag_incl)(41.3)) != 0.0
 
@@ -130,14 +132,14 @@ def test_fast_response_is_faster_than_the_exact_disk_integral():
 
     def _bench(fn):
         fn_jit = jax.jit(fn)
-        fn_jit(0.0, 30.0).block_until_ready()  # compile once, outside timing
+        fn_jit(typical_log_mdot(M_BH), 30.0).block_until_ready()  # compile once, outside timing
         t0 = time.time()
         for _ in range(100):
-            fn_jit(0.0, 30.0).block_until_ready()
+            fn_jit(typical_log_mdot(M_BH), 30.0).block_until_ready()
         return (time.time() - t0) / 100
 
-    slow_time = _bench(lambda log_mdot, inclination: thin_disk_response(tau_grid, log_mdot, 5000.0, inclination, M_BH))
-    fast_time = _bench(lambda log_mdot, inclination: fast(tau_grid, log_mdot, 5000.0, inclination, M_BH))
+    slow_time = _bench(lambda log_mdot_msun_yr, inclination: thin_disk_response(tau_grid, log_mdot_msun_yr, 5000.0, inclination, M_BH))
+    fast_time = _bench(lambda log_mdot_msun_yr, inclination: fast(tau_grid, log_mdot_msun_yr, 5000.0, inclination, M_BH))
 
     assert fast_time < slow_time, (
         f"expected the templated lookup to be at least somewhat faster than "
@@ -153,15 +155,15 @@ def test_table_and_fast_wrapper_agree():
     fast = build_thin_disk_response_fast(M_BH, **_SMALL_TABLE_KWARGS)
     tau_grid = jnp.linspace(0.0, 15.0, 300)
 
-    direct = thin_disk_response_from_table(table, tau_grid, 0.0, 5000.0, 30.0)
-    via_wrapper = fast(tau_grid, 0.0, 5000.0, 30.0, M_BH)
+    direct = thin_disk_response_from_table(table, tau_grid, typical_log_mdot(M_BH), 5000.0, 30.0)
+    via_wrapper = fast(tau_grid, typical_log_mdot(M_BH), 5000.0, 30.0, M_BH)
     np.testing.assert_array_equal(np.asarray(direct), np.asarray(via_wrapper))
     assert fast.table is not None
 
 
 @pytest.mark.fit
 def test_fast_response_is_usable_via_the_existing_swap_mechanism():
-    """Matches the same (tau_grid, log_mdot, wavelength, inclination, M_BH)
+    """Matches the same (tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH)
     contract as response_function/thin_disk_response, so it plugs into the
     existing discotau.model.response_function swap point (CLAUDE.md decision
     #5) with no further wiring -- run a (tiny, fast-table) real fit through it."""

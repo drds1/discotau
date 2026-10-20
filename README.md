@@ -172,11 +172,12 @@ see "Extra components" below).
   function. Its mean lag follows the standard thin-disk reprocessing scaling
 
   ```
-  τ_mean ∝ (M_BH)^(2/3) * (Ṁ)^(1/3) * λ^(4/3)
+  τ_mean ∝ (M_BH Ṁ)^(1/3) * λ^(4/3)
   ```
 
-  with `M_BH` **fixed** (not inferred) and `log_mdot` (mass accretion rate)
-  inferred. Inclination controls only the *skewness* of the response, never
+  with `M_BH` (solar masses) **fixed** (not inferred) and `log_mdot_msun_yr`
+  (log10 of the accretion rate in solar masses per year; `mdot_msun_yr` in the
+  samples is the rate itself) inferred. Inclination controls only the *skewness* of the response, never
   the mean lag. `inclination` is sampled uniform in `cos(inclination)`, not
   in `inclination` itself -- the standard "isotropic orientation" prior
   (`dOmega = sin(i) di dphi` is flat in `cos(i)`; uniform in `i` directly
@@ -194,7 +195,7 @@ see "Extra components" below).
   at any set of observation times is then a single vectorised matrix
   contraction: no loop over `(t_obs, τ)` pairs, and no loop over bands.
 
-By default these are inferred: `log_mdot`, `inclination`, `sigma_drw`, the
+By default these are inferred: `log_mdot_msun_yr`, `inclination`, `sigma_drw`, the
 driver Fourier coefficients `{S_k, C_k}`, and per band `{S_band, C_band}` and
 the linear background's coefficient `bg_{band}`. Options add more (`tau_drw`
 with `drw_prior=True`, the temperature slope with `fit_temperature_slope=True`,
@@ -332,7 +333,7 @@ docs/
                           theory, maths and before/after benchmarks
     nested_laplace.md     the default direct solve (optimise()): what it is,
                           how it works, validation against nested sampling,
-                          Badness-of-Fit landscapes of log_mdot and inclination
+                          Badness-of-Fit landscapes of log_mdot_msun_yr and inclination
     extra_components.md   the diffuse continuum and slow backgrounds
     disc_sed.md           the disc SED, luminosity distance and H0 analysis
     rippled_disc.md       rimmed and rippled discs
@@ -494,7 +495,7 @@ ef.plot_raw_lightcurves()
 ef.plot_lightcurve_fits()
 ef.plot_power_spectrum()
 ef.plot_mcmc_diagnostics()
-ef.plot_corner()              # log_mdot / inclination, coloured per chain
+ef.plot_corner()              # log_mdot_msun_yr / inclination, coloured per chain
 ef.plot_corner_bands()        # S_band / C_band (offset/stretch) for every band
 ef.plot_corner_free_lag()     # tau_band, only if any band used lag_mode="free"
 ef.plot_fourier_correlation() # driver Fourier coefficient correlation heatmap
@@ -529,41 +530,41 @@ default, and when to change it.
 ```python
 ef.optimise()                          # nested Laplace: grid + Laplace + importance weights
 print(ef.nested_laplace_result["k_hat"])  # below 0.7: the result is reliable
-ef.plot_landscape()                    # Badness-of-Fit map of log_mdot against inclination
+ef.plot_landscape()                    # Badness-of-Fit map of log_mdot_msun_yr against inclination
 ef.plot_landscape_3d()                 # the same posterior as a 3-D mountain range
-ef.plot_sample_landscape_3d("dce_fraction_V", "log_mdot")  # any pair, from the samples
+ef.plot_sample_landscape_3d("dce_fraction_V", "log_mdot_msun_yr")  # any pair, from the samples
 ef.plot_lightcurve_fits()              # every plot works on the result, as after .fit()
 ef.optimise(method="laplace")          # quicker: L-BFGS + a single Gaussian
 ef.fit(init_from_optimum=True)         # optional: full NUTS, started at the optimum
 ```
 
-With the nonlinear parameters (`log_mdot`, inclination, band gains,
+With the nonlinear parameters (`log_mdot_msun_yr`, inclination, band gains,
 `sigma_drw`, ...) held fixed, every predicted light curve is *linear* in the
 driver's Fourier coefficients and the band offsets, which have Gaussian
 priors, so those parameters (a few hundred with the default grid) integrate out
 of the likelihood exactly.
-What remains is about 10 parameters, and only two of them, `log_mdot` and the
+What remains is about 10 parameters, and only two of them, `log_mdot_msun_yr` and the
 inclination, make the posterior awkward: on data that constrain the disc
 weakly it becomes a curved valley or has two separate basins.
 
 `optimise()` therefore uses a **nested Laplace approximation** by default
-(after INLA, Rue, Martino & Chopin 2009): it lays `log_mdot` and the
+(after INLA, Rue, Martino & Chopin 2009): it lays `log_mdot_msun_yr` and the
 inclination out on a grid, optimises and Laplace-integrates the remaining
 few parameters at every grid point, and importance-weights its draws against
 the exact posterior, reporting a reliability check (Pareto `k_hat`). The grid
 itself is the Badness-of-Fit landscape, `ef.plot_landscape()`. On synthetic g
 and i light curves at SNR 100, where the posterior has two basins, it matched
-nested sampling (log_mdot 2.61 ± 1.25 against 2.59 ± 1.24, truth 1.95) in
+nested sampling (log_mdot_msun_yr 0.66 ± 1.25 against 0.64 ± 1.24, truth 0) in
 190 s against 2610 s. The original single-Gaussian solve,
 `optimise(method="laplace")`, is 1.4 to 1.8 times faster and fine for data
-that clearly constrain the disc, but on that case reported 1.99 ± 0.20.
+that clearly constrain the disc, but on that case reported 0.04 ± 0.20.
 Everything about the method, its validation and costs, with the landscape
 maps, is in [`docs/nested_laplace.md`](docs/nested_laplace.md).
 
 On a 5-band synthetic benchmark where the posterior is a single clean peak,
 the single-Gaussian solve took ~27 s against ~56 s for a 500 + 500 NUTS run
-and reproduced NUTS's `log_mdot` posterior (0.194 ± 0.012 against
-0.193 ± 0.011). Keep using `.fit()` for free-lag bands (a lag per band is
+and reproduced NUTS's `log_mdot_msun_yr` posterior (−1.759 ± 0.012 against
+−1.760 ± 0.011). Keep using `.fit()` for free-lag bands (a lag per band is
 too many to grid), and whenever `k_hat` is above 0.7.
 `EchoFit(marginalise_linear=True)` runs NUTS on the same marginalised
 model; that's exact too, but measured *slower* than the default sampled
@@ -874,7 +875,7 @@ original CREAM Fortran implementation explored parameter space.
 
 `forward_model.response_function` is the single place the physical
 (`lag_mode="physical"`, see below) response shape lives. Any replacement
-must have the same signature, `(tau_grid, log_mdot, wavelength,
+must have the same signature, `(tau_grid, log_mdot_msun_yr, wavelength,
 inclination, M_BH, ...) -> psi`, and return a causal, area-normalised array
 on `tau_grid`. Two are built in:
 
@@ -1060,8 +1061,8 @@ signatures of the disc-size problem. Method, validation and that experiment:
 ## 🌈 Emission-line / free-lag mode and driver light curves
 
 Every band defaults to `lag_mode="physical"`: its mean lag comes from
-`lag_scaling(log_mdot, wavelength, M_BH)`, tied to every other physical
-band through the one shared `log_mdot`. Pass `lag_mode="free"` to
+`lag_scaling(log_mdot_msun_yr, wavelength, M_BH)`, tied to every other physical
+band through the one shared `log_mdot_msun_yr`. Pass `lag_mode="free"` to
 `add_lightcurve()` instead for a band whose lag isn't physically tied to
 the others at all, e.g. an emission line reverberating the continuum,
 where each line's lag is its own independent quantity, not a point on a
@@ -1073,7 +1074,7 @@ centred on it.
 the driver, compensated by shifting every band's lag the same amount,
 leaves the predicted light curves exactly unchanged (proved directly, with
 no MCMC and no sampling noise, in `tests/test_shift_degeneracy.py`). The physical response
-escapes this because the shared `log_mdot` can only *rescale* every band's
+escapes this because the shared `log_mdot_msun_yr` can only *rescale* every band's
 lag together, not shift them by a common additive amount; a free-lag
 band's `tau_{name}` has no such tie, so without an anchor the fit is
 exactly degenerate in the absolute lag origin.
@@ -1129,7 +1130,7 @@ This is a research scaffold, not a validated production pipeline:
   validates the code but is not a substitute for validation against real
   reverberation-mapping campaigns or independent simulations.
 - On the synthetic recovery test in `tests/test_recovery.py` (run with
-  `drw_prior=True` to exercise `tau_drw`), `log_mdot` (which sets the mean
+  `drw_prior=True` to exercise `tau_drw`), `log_mdot_msun_yr` (which sets the mean
   lag) recovers well, but `inclination`, `sigma_drw`, and `tau_drw` recover
   only loosely (wide/biased posteriors) even with zero divergent
   transitions: NUTS tends to spend most samples at its max-tree-depth

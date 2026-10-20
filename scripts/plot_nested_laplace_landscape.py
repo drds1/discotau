@@ -1,5 +1,5 @@
 """
-Badness-of-Fit landscapes of log_mdot against inclination (EchoFit.plot_landscape)
+Badness-of-Fit landscapes of log_mdot_msun_yr against inclination (EchoFit.plot_landscape)
 for synthetic cases from scripts/synthetic_recovery_grid.py, with the truth and
 the single-Gaussian solve's peak (optimise(method="laplace")) marked: the
 figures in docs/nested_laplace.md.
@@ -28,7 +28,7 @@ def main():
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
-    truth = dict(log_mdot=grid.TRUE_LOG_MDOT, inclination=grid.TRUE_INCLINATION)
+    truth = dict(log_mdot_msun_yr=grid.TRUE_LOG_MDOT, inclination=grid.TRUE_INCLINATION)
     for case in args.cases:
         band_set, snr, cadence, seed = case.split(":")
         snr, cadence, seed = float(snr), float(cadence), int(seed)
@@ -39,7 +39,7 @@ def main():
             ef.optimise(rng_seed=seed, method="laplace")  # marked on the landscape
             ef.optimise(rng_seed=seed)                    # nested Laplace
         r, smp = ef.nested_laplace_result, ef.samples
-        print(f"{case}: log_mdot {smp['log_mdot'].mean():.2f}+/-{smp['log_mdot'].std():.2f} "
+        print(f"{case}: log_mdot_msun_yr {smp['log_mdot_msun_yr'].mean():.2f}+/-{smp['log_mdot_msun_yr'].std():.2f} "
               f"inclination {smp['inclination'].mean():.1f}+/-{smp['inclination'].std():.1f} "
               f"k_hat {r['k_hat']:.2f} ess {r['ess']:.0f} grid seconds {r['timings']['total_seconds']:.0f}", flush=True)
         fig, _ = ef.plot_landscape(truth=truth)

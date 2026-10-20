@@ -36,6 +36,7 @@ from pathlib import Path
 
 import numpy as np
 
+from discotau.forward_model import typical_log_mdot
 from discotau.synthetic import generate_synthetic_dataset
 from discotau.echofit import EchoFit
 from discotau import reporting
@@ -58,7 +59,7 @@ def _run_synthetic(args):
     gaps = None if args.no_gaps else [(50, 14), (150, 21)]
     data = generate_synthetic_dataset(
         M_BH=1.0e9,
-        log_mdot_true=0.0,
+        log_mdot_msun_yr_true=float(typical_log_mdot(1.0e9)),
         inclination_true=35.0,
         sigma_drw_true=0.3,
         tau_drw_true=30.0,
@@ -89,11 +90,11 @@ def _run_synthetic(args):
 
     diverging = np.asarray(ef.extra_fields.get("diverging", []))
     n_div = int(diverging.sum()) if diverging.size else 0
-    log_mdot_mean = float(ef.samples["log_mdot"].mean())
+    log_mdot_mean = float(ef.samples["log_mdot_msun_yr"].mean())
 
     print(f"Fit finished in {dt:.1f}s")
     print(f"Divergent transitions: {n_div}/{len(diverging)}")
-    print(f"log_mdot posterior mean: {log_mdot_mean:.3f} (truth: {truth['log_mdot']:.3f})")
+    print(f"log_mdot_msun_yr posterior mean: {log_mdot_mean:.3f} (truth: {truth['log_mdot_msun_yr']:.3f})")
 
     print("Rendering plots...")
     report_path = reporting.generate_report(ef, args.outdir, fit_seconds=dt, truth=truth)
@@ -143,7 +144,7 @@ def _run_ngc5548(args):
     print(f"\n{'parameter':<14}{'mean':>10}{'std':>10}")
     # tau_drw only exists as a site if this fit used drw_prior=True (see
     # CLAUDE.md decision #19); the default random-walk prior has no such site.
-    for name in ["log_mdot", "inclination", "sigma_drw", "tau_drw"]:
+    for name in ["log_mdot_msun_yr", "inclination", "sigma_drw", "tau_drw"]:
         if name not in ef.samples:
             continue
         s = np.asarray(ef.samples[name])

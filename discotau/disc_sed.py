@@ -4,7 +4,7 @@ fitted :class:`~discotau.echofit.EchoFit`: the test of Cackett, Horne & Winkler
 (2007, MNRAS 380, 669), who found H_0 = 44 +/- 5 km/s/Mpc from 14 AGN discs.
 
 The delays fix the disc's temperature profile in light-days,
-``T(r) = T_1 r^-alpha (1 - sqrt(r_in/r))^(1/4)`` (``T_1`` from ``log_mdot`` and
+``T(r) = T_1 r^-alpha (1 - sqrt(r_in/r))^(1/4)`` (``T_1`` from ``log_mdot_msun_yr`` and
 ``M_BH``, :func:`~discotau.forward_model.disk_t1_kelvin`), mixed with the
 lamppost's irradiation exactly as :func:`~discotau.forward_model.thin_disk_response`
 mixes it (``include_irradiation``, on by default), and the fit gives its
@@ -210,7 +210,7 @@ def disc_sed_analysis(
     s = ef.samples
     if s is None:
         raise RuntimeError("disc_sed_analysis: fit or optimise first.")
-    if "log_mdot" not in s:
+    if "log_mdot_msun_yr" not in s:
         raise ValueError("disc_sed_analysis needs a disc model: at least one lag_mode='physical' band.")
     if "S" not in s or "C" not in s:
         raise ValueError("disc_sed_analysis needs the driver's Fourier coefficients in the samples.")
@@ -224,7 +224,7 @@ def disc_sed_analysis(
         raise ValueError(f"host_band {host_band!r} is not a registered band")
     k_host = names.index(host_band)
 
-    n = len(np.asarray(s["log_mdot"]))
+    n = len(np.asarray(s["log_mdot_msun_yr"]))
     idx = np.random.default_rng(seed).choice(n, min(n_draws, n), replace=False)
     t_all = np.concatenate([np.asarray(ef.bands[b]["t"]) for b in names])
     t_fine = jnp.linspace(float(t_all.min()), float(t_all.max()), 1500)
@@ -245,7 +245,7 @@ def disc_sed_analysis(
     total_mean = (C + S * xmean) * conv
     constant = (C + S * x0) * conv
 
-    t1 = np.asarray(disk_t1_kelvin(jnp.asarray(np.asarray(s["log_mdot"])[idx]), ef.M_BH), dtype=np.float64)
+    t1 = np.asarray(disk_t1_kelvin(jnp.asarray(np.asarray(s["log_mdot_msun_yr"])[idx]), ef.M_BH), dtype=np.float64)
     alpha = (np.asarray(s["temperature_slope"])[idx] if "temperature_slope" in s
              else np.full(len(idx), 0.75))
     incl = np.asarray(s["inclination"])[idx] if "inclination" in s else np.full(len(idx), 0.0)

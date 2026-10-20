@@ -58,8 +58,8 @@ def test_fixed_inclination_skips_cos_inclination_entirely():
 
     assert "cos_inclination" not in ef.samples
     assert np.all(ef.samples["inclination"] == 0.0)
-    # log_mdot is not fixed, so it should still show real posterior spread.
-    assert ef.samples["log_mdot"].std() > 0.0
+    # log_mdot_msun_yr is not fixed, so it should still show real posterior spread.
+    assert ef.samples["log_mdot_msun_yr"].std() > 0.0
 
 
 @pytest.mark.fit
@@ -92,7 +92,7 @@ def test_unknown_fixed_param_key_raises():
 def test_valid_fixed_param_names_covers_physical_and_driver_sites():
     ef = _build_physical_echofit(_physical_dataset(), drw_prior=True)
     valid = ef._valid_fixed_param_names()
-    assert {"sigma_drw", "tau_drw", "log_mdot", "inclination", "S_g", "C_g", "S_i", "C_i"} <= valid
+    assert {"sigma_drw", "tau_drw", "log_mdot_msun_yr", "inclination", "S_g", "C_g", "S_i", "C_i"} <= valid
     assert "tau_g" not in valid  # physical-mode bands have no tau_{band} site
 
 

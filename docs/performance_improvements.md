@@ -19,7 +19,7 @@ under `jax.jit` (see `CLAUDE.md` decision #9 for why eager timings
 mislead), measured one run at a time on an otherwise idle CPU (macOS, JAX on
 CPU), on one fixed synthetic dataset: 5 bands (u, g, r, i, z) × 100
 observations, `n_freq = 60`, `n_tau = 400`, `M_BH = 10^8 M_sun`, true
-`log_mdot = 0.2`. Absolute timings depend on the machine; the ratios are
+`log_mdot_msun_yr = −1.753` (0.018 M☉/yr). Absolute timings depend on the machine; the ratios are
 what carry over.
 
 ## Summary
@@ -29,12 +29,12 @@ what carry over.
 | One NUTS gradient evaluation (sampled model) | 8.32 ms | 0.28 ms | **30× faster** |
 | `transfer_coeffs`, `n_tau = 400` | 0.68 ms | 0.026 ms | 26× faster |
 | Default NUTS fit, 500 + 500 (diagonal → dense mass) | 127 s, min ESS 56 | 56 s, min ESS 413 | **17× more ESS per second** |
-| Direct solve, `optimise()` (new) | n/a | 27 s, no MCMC | 2.1× faster than dense NUTS, same `log_mdot` |
+| Direct solve, `optimise()` (new) | n/a | 27 s, no MCMC | 2.1× faster than dense NUTS, same `log_mdot_msun_yr` |
 | NUTS on the marginalised model (new, opt-in) | n/a | 134 s, min ESS 485 | *slower* than dense NUTS: kept opt-in |
 | Marginal log-likelihood error in float32 (Cholesky → QR) | 0.022 | 0.00009 | 240× more accurate |
 
 The posterior itself is unchanged throughout: every method gives
-`log_mdot` = 0.193 to 0.196 ± 0.011 to 0.012 (truth 0.2).
+`log_mdot_msun_yr` = −1.760 to −1.757 ± 0.011 to 0.012 (truth −1.753).
 
 Two results went against what was predicted before measuring, and the
 document keeps them:
@@ -57,7 +57,7 @@ X(t) = \sum_{k=1}^{n_f} \big[S_k \sin(\omega_k t) + C_k \cos(\omega_k t)\big],
 ```
 
 and band $b$ sees it through a causal response $\psi_b(\tau)$ that depends on
-the nonlinear disk parameters (`log_mdot`, inclination), scaled and offset:
+the nonlinear disk parameters (`log_mdot_msun_yr`, inclination), scaled and offset:
 
 ```math
 y_b(t) = S_b \int_0^\infty \psi_b(\tau)\, X(t - \tau)\, d\tau + C_b + \varepsilon, \qquad \varepsilon \sim \mathcal N(0, \sigma^2).
@@ -208,11 +208,11 @@ a dense one the median is 63 steps, and nothing gets near the ceiling.
 | Median leapfrog steps per sample | 1023 (ceiling) | 63 |
 | Adapted step size | 0.0035 | 0.13 |
 | Warmup / sampling time | 61 s / 67 s | 46 s / 10 s |
-| ESS `log_mdot` / `cos_inclination` / `sigma_drw` / `S_g` | 228 / 356 / 69 / 56 | 504 / 413 / 632 / 700 |
+| ESS `log_mdot_msun_yr` / `cos_inclination` / `sigma_drw` / `S_g` | 228 / 356 / 69 / 56 | 504 / 413 / 632 / 700 |
 | Min ESS per sampling second | 0.84 | **39.4** (47×) |
 | Min ESS per total second | 0.44 | **7.4** (17×) |
 | Divergences | 0 | 0 |
-| `log_mdot` | 0.196 ± 0.011 | 0.193 ± 0.011 |
+| `log_mdot_msun_yr` | −1.757 ± 0.011 | −1.760 ± 0.011 |
 
 ![ESS per sampling second, per parameter](images/perf/ess_per_second.png)
 
@@ -379,7 +379,7 @@ draws are slightly less autocorrelated, but that is not enough:
 | Adapted step size | 0.13 | 0.53 |
 | Warmup / sampling time | 46 s / 10 s | 109 s / 25 s |
 | Warmup leapfrog steps | 271,932 | 17,788 |
-| ESS `log_mdot` / `cos_inclination` / `sigma_drw` / `S_g` | 504 / 413 / 632 / 700 | 1075 / 568 / 485 / 613 |
+| ESS `log_mdot_msun_yr` / `cos_inclination` / `sigma_drw` / `S_g` | 504 / 413 / 632 / 700 | 1075 / 568 / 485 / 613 |
 | Min ESS per sampling second | **39.4** | 19.1 |
 | Min ESS per total second | **7.4** | 3.6 |
 
@@ -464,12 +464,12 @@ search on a float32 objective often stops "abnormally" right at the optimum.
 
 ![Posterior agreement across all four methods](images/perf/posterior_agreement.png)
 
-| Posterior mean ± sd | `log_mdot` | inclination (°) | `sigma_drw` | `S_g` | `C_g` |
+| Posterior mean ± sd | `log_mdot_msun_yr` | inclination (°) | `sigma_drw` | `S_g` | `C_g` |
 |---|---|---|---|---|---|
-| NUTS, diagonal | 0.1956 ± 0.0108 | 60.0 ± 12.7 | 0.084 ± 0.037 | 0.64 ± 0.30 | −0.0007 ± 0.0137 |
-| NUTS, dense | 0.1933 ± 0.0107 | 59.0 ± 13.5 | 0.079 ± 0.035 | 0.68 ± 0.30 | −0.0015 ± 0.0131 |
-| NUTS, marginalised | 0.1943 ± 0.0115 | 60.7 ± 13.5 | 0.084 ± 0.039 | 0.65 ± 0.30 | −0.0020 ± 0.0139 |
-| **`optimise()` (Laplace)** | **0.1944 ± 0.0116** | **55.3 ± 14.0** | **0.082 ± 0.036** | **0.66 ± 0.30** | **−0.0011 ± 0.0132** |
+| NUTS, diagonal | −1.7576 ± 0.0108 | 60.0 ± 12.7 | 0.084 ± 0.037 | 0.64 ± 0.30 | −0.0007 ± 0.0137 |
+| NUTS, dense | −1.7599 ± 0.0107 | 59.0 ± 13.5 | 0.079 ± 0.035 | 0.68 ± 0.30 | −0.0015 ± 0.0131 |
+| NUTS, marginalised | −1.7589 ± 0.0115 | 60.7 ± 13.5 | 0.084 ± 0.039 | 0.65 ± 0.30 | −0.0020 ± 0.0139 |
+| **`optimise()` (Laplace)** | **−1.7588 ± 0.0116** | **55.3 ± 14.0** | **0.082 ± 0.036** | **0.66 ± 0.30** | **−0.0011 ± 0.0132** |
 
 Every parameter agrees to well within its posterior width. The visible
 difference is inclination's *shape*: the true posterior rises towards and

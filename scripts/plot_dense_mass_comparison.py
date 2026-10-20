@@ -29,6 +29,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 from numpyro.infer import MCMC, NUTS
 
+from discotau.forward_model import typical_log_mdot
 from discotau.synthetic import generate_synthetic_dataset
 from discotau.echofit import EchoFit
 from discotau.model import reverberation_model
@@ -38,7 +39,7 @@ OUT_DIR = "docs/images"
 
 def _run(dense_mass: bool, seed: int, num_warmup: int, num_samples: int):
     data = generate_synthetic_dataset(
-        M_BH=1.0e9, log_mdot_true=0.0, inclination_true=35.0,
+        M_BH=1.0e9, log_mdot_msun_yr_true=float(typical_log_mdot(1.0e9)), inclination_true=35.0,
         sigma_drw_true=0.3, tau_drw_true=30.0,
         bands={"g": 4770.0, "i": 7625.0}, t_span=200.0, n_obs_per_band=50,
         n_freq=15, n_tau=100, tau_max=50.0, noise_level=0.05, seed=0,

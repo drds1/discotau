@@ -42,21 +42,15 @@ it can be swapped for a different parametric family later without touching
 
 from __future__ import annotations
 
-from typing import Callable, NamedTuple
+from typing import Callable, NamedTuple, Optional
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from jax.scipy.special import erf as _erf
 
-# ----------------------------------------------------------------------
-# Pivot / calibration constants for the lag-scaling law.
-# These set the overall day-scale and are not inferred.
-# ----------------------------------------------------------------------
-TAU0_DAYS = 1.0          # normalisation: lag (days) at the pivot point below
-M_BH_PIVOT = 1.0e8       # pivot black hole mass, solar masses
-MDOT_PIVOT = 1.0         # pivot dimensionless accretion rate (10**log_mdot)
-LAMBDA_PIVOT = 5000.0    # pivot wavelength, Angstrom
+# Reference wavelength (Angstrom) for quantities quoted at one wavelength.
+LAMBDA_PIVOT = 5000.0
 
 
 
@@ -67,18 +61,19 @@ LAMBDA_PIVOT = 5000.0    # pivot wavelength, Angstrom
 # tau = 0; see docs/cream_response_comparison.md.
 DEFAULT_SMOOTHING_LOG = 0.05
 
-def lag_scaling(log_mdot, wavelength, M_BH):
-    """Mean disk-reprocessing lag, in days.
+def lag_scaling(log_mdot_msun_yr, wavelength, M_BH):
+    """Mean disk-reprocessing lag, in days: the radius (light-days) where the
+    standard thin disc's temperature equals the Wien temperature of the
+    observing wavelength.
 
-    Follows the standard lamppost/thin-disk scaling for the radius at which
-    the disk temperature matches a given observing wavelength,
-    R(lambda) ~ M_BH^(2/3) Mdot^(1/3) lambda^(4/3), converted to a light
-    travel time. Black hole mass is a *fixed input*, not inferred.
+    ``T(r) = T_1 r**(-3/4)`` with ``T_1`` from :func:`disk_t1_kelvin`, so the
+    lag is ``(T_1 wavelength / b)**(4/3)``, i.e. ``M_BH**(1/3) Mdot**(1/3)
+    wavelength**(4/3)``. Black hole mass is a *fixed input*, not inferred.
 
     Parameters
     ----------
-    log_mdot : array_like
-        log10 of the (dimensionless) mass accretion rate. Inferred.
+    log_mdot_msun_yr : array_like
+        log10 of the mass accretion rate in solar masses per year. Inferred.
     wavelength : array_like
         Observing wavelength in Angstrom (rest frame).
     M_BH : float
@@ -87,17 +82,11 @@ def lag_scaling(log_mdot, wavelength, M_BH):
     Returns
     -------
     tau_mean : array_like
-        Mean lag in days, same broadcast shape as (log_mdot, wavelength).
+        Mean lag in days, same broadcast shape as (log_mdot_msun_yr, wavelength).
     """
-    # (10**log_mdot)**(1/3) taken as 10**(log_mdot/3): the first overflowed
-    # float32 for log_mdot above ~38.
-    tau_mean = (
-        TAU0_DAYS
-        * (M_BH / M_BH_PIVOT) ** (2.0 / 3.0)
-        * 10.0 ** (log_mdot / 3.0) / MDOT_PIVOT ** (1.0 / 3.0)
-        * (wavelength / LAMBDA_PIVOT) ** (4.0 / 3.0)
-    )
-    return tau_mean
+    # In logs: the accretion rate's power overflowed float32 at large values.
+    log10_t1 = _log10_disk_t1(log_mdot_msun_yr, M_BH)
+    return 10.0 ** ((4.0 / 3.0) * (log10_t1 + jnp.log10(wavelength / _WIEN_B_ANGSTROM_KELVIN)))
 
 
 def _skew_normal_pdf(x, loc, scale, alpha):
@@ -110,7 +99,7 @@ def _skew_normal_pdf(x, loc, scale, alpha):
 
 def response_function(
     tau_grid,
-    log_mdot,
+    log_mdot_msun_yr,
     wavelength,
     inclination,
     M_BH,
@@ -132,7 +121,7 @@ def response_function(
     tau_grid : array_like, shape (n_tau,)
         Non-negative lag grid (days) the response is evaluated / normalised
         on.
-    log_mdot, wavelength, inclination : array_like
+    log_mdot_msun_yr, wavelength, inclination : array_like
         Physical parameters. ``inclination`` in degrees, 0 = face-on.
     M_BH : float
         Fixed black hole mass (solar masses).
@@ -148,7 +137,7 @@ def response_function(
     psi : array_like, shape (n_tau,)
         Normalised response evaluated at ``tau_grid``, zero for tau < 0.
     """
-    tau_mean = lag_scaling(log_mdot, wavelength, M_BH)
+    tau_mean = lag_scaling(log_mdot_msun_yr, wavelength, M_BH)
     scale = jnp.clip(width_frac * tau_mean, 1e-3, None)
     alpha = skew_offset + skew_incl_slope * jnp.sin(jnp.deg2rad(inclination))
 
@@ -165,7 +154,7 @@ def tophat_response_free(tau_grid, tau_mean, width_frac: float = 0.3, edge_softn
     smoothed (not hard) edges -- see "Why not a literal top-hat" below.
 
     Unlike :func:`response_function`, ``tau_mean`` is taken as given rather
-    than derived from ``lag_scaling(log_mdot, wavelength, M_BH)`` -- this is
+    than derived from ``lag_scaling(log_mdot_msun_yr, wavelength, M_BH)`` -- this is
     the response used for a band in "free" lag mode (see
     ``model.reverberation_model``'s ``bands[...]["lag_mode"]``), where the
     lag itself is an independently inferred parameter rather than tied to
@@ -306,28 +295,54 @@ def _schwarzschild_radius_light_days(M_BH):
     return 2.0 * r_g_m / _LIGHT_DAY_M
 
 
-def disk_t1_kelvin(log_mdot, M_BH):
-    """Temperature (Kelvin) of the disk's power law at one light-day, ``T_1``,
-    for a given ``log_mdot``.
+# T_1**4 = 3 G M Mdot / (8 pi sigma (1 light-day)**3), the viscous thin disc's
+# T**4 r**3 far from the inner edge, with M in solar masses and Mdot in solar
+# masses per year: the log10 of its constant factor (SI).
+_SIGMA_SB = 5.670374419e-8                   # W m^-2 K^-4
+_YEAR_S = 3.15576e7                          # Julian year, seconds
+_LOG10_T1_4_FACTOR = float(np.log10(3.0 * _G * _M_SUN * (_M_SUN / _YEAR_S)
+                                    / (8.0 * np.pi * _SIGMA_SB * _LIGHT_DAY_M ** 3)))
 
-    ``lag_scaling`` puts the radius where the disk temperature equals the
-    Wien temperature ``b / wavelength`` at ``tau_ref(wavelength)``, which
-    scales as ``wavelength**(4/3)``; for ``T = T_1 r**(-3/4)`` that makes
-    ``T_1 = (b / wavelength) * tau_ref**(3/4)`` the same at every wavelength.
-    This is the one place ``log_mdot`` becomes a temperature, so every
-    temperature slope (``viscous_slope``) shares the same ``T_1`` for the
-    same ``log_mdot``.
+
+def _log10_disk_t1(log_mdot_msun_yr, M_BH):
+    return 0.25 * (_LOG10_T1_4_FACTOR + jnp.log10(M_BH) + log_mdot_msun_yr)
+
+
+def disk_t1_kelvin(log_mdot_msun_yr, M_BH):
+    """Temperature (Kelvin) of the disk's power law at one light-day, ``T_1``:
+    ``T_1**4 = 3 G M_BH Mdot / (8 pi sigma (1 light-day)**3)``.
+
+    ``M_BH`` is in solar masses and ``log_mdot_msun_yr`` is log10 of the
+    accretion rate in solar masses per year. This is the one place the
+    accretion rate becomes a temperature, so every temperature slope
+    (``viscous_slope``) shares the same ``T_1`` for the same accretion rate.
     """
-    tau_ref = lag_scaling(log_mdot, LAMBDA_PIVOT, M_BH)
-    return _WIEN_B_ANGSTROM_KELVIN / LAMBDA_PIVOT * tau_ref ** 0.75
+    return 10.0 ** _log10_disk_t1(log_mdot_msun_yr, M_BH)
 
 
-def wien_radius(log_mdot, wavelength, M_BH, viscous_slope=0.75):
+def typical_log_mdot(M_BH):
+    """log10 of a typical accretion rate (solar masses per year) for ``M_BH``:
+    the rate whose 5000 Angstrom Wien radius is ``(M_BH / 1e8)**(2/3)``
+    light-days, about 0.5 per cent of Eddington (radiative efficiency 0.1) at
+    any mass. The centre of the accretion-rate prior and the default reference
+    point elsewhere. It is the zero point of the dimensionless accretion rate
+    discotau used until October 2026, so priors and defaults built on it give
+    the same results as before."""
+    return log_mdot_from_t1(_WIEN_B_ANGSTROM_KELVIN / LAMBDA_PIVOT * (M_BH / 1.0e8) ** 0.5, M_BH)
+
+
+def log_mdot_from_t1(t1_kelvin, M_BH):
+    """log10 of the accretion rate (solar masses per year) that gives
+    ``T_1 = t1_kelvin`` at one light-day; the inverse of :func:`disk_t1_kelvin`."""
+    return 4.0 * jnp.log10(t1_kelvin) - _LOG10_T1_4_FACTOR - jnp.log10(M_BH)
+
+
+def wien_radius(log_mdot_msun_yr, wavelength, M_BH, viscous_slope=0.75):
     """Radius (light-days) where ``T_1 r**(-viscous_slope)`` equals the Wien
     temperature ``b / wavelength``: ``lag_scaling``'s ``tau_ref`` exactly at
     the standard slope 0.75, and scaling as ``wavelength**(1/viscous_slope)``
     in general."""
-    return (disk_t1_kelvin(log_mdot, M_BH) * wavelength / _WIEN_B_ANGSTROM_KELVIN) ** (1.0 / viscous_slope)
+    return (disk_t1_kelvin(log_mdot_msun_yr, M_BH) * wavelength / _WIEN_B_ANGSTROM_KELVIN) ** (1.0 / viscous_slope)
 
 
 def _viscous_t4_shape(r_safe, r_in, viscous_slope):
@@ -354,7 +369,7 @@ def _viscous_t4_shape(r_safe, r_in, viscous_slope):
     return r_safe ** (-4.0 * viscous_slope) * (1.0 - jnp.sqrt(r_in / r_safe))
 
 
-def disk_temperature_profile(r, log_mdot, wavelength, M_BH, viscous_slope: float = 0.75):
+def disk_temperature_profile(r, log_mdot_msun_yr, wavelength, M_BH, viscous_slope: float = 0.75):
     """Axisymmetric Shakura-Sunyaev viscous disk temperature (Kelvin) as a
     function of radius ``r`` (light-days):
     ``T**4 = T_1**4 r**(-4 viscous_slope) (1 - sqrt(r_in / r))``, with
@@ -379,7 +394,7 @@ def disk_temperature_profile(r, log_mdot, wavelength, M_BH, viscous_slope: float
         Radius (light-days), any shape. Clipped at the ISCO (3
         Schwarzschild radii) from below -- there's no disk material inside
         it, so no temperature to report.
-    log_mdot, M_BH, viscous_slope
+    log_mdot_msun_yr, M_BH, viscous_slope
         As in ``thin_disk_response``.
     wavelength : float
         Kept for backward compatibility; the profile no longer depends on it
@@ -389,12 +404,12 @@ def disk_temperature_profile(r, log_mdot, wavelength, M_BH, viscous_slope: float
     r_in = 3.0 * _schwarzschild_radius_light_days(M_BH)
     r_safe = jnp.clip(r, r_in, None)
     t4_shape = _viscous_t4_shape(r_safe, r_in, viscous_slope)
-    return disk_t1_kelvin(log_mdot, M_BH) * jnp.clip(t4_shape, 1e-30, None) ** 0.25
+    return disk_t1_kelvin(log_mdot_msun_yr, M_BH) * jnp.clip(t4_shape, 1e-30, None) ** 0.25
 
 
 def thin_disk_response(
     tau_grid,
-    log_mdot,
+    log_mdot_msun_yr,
     wavelength,
     inclination,
     M_BH,
@@ -521,9 +536,9 @@ def thin_disk_response(
     light-days), with ``T_1`` from :func:`disk_t1_kelvin`, which takes it
     from :func:`lag_scaling`'s Wien radius rather than an independently
     derived Eddington-ratio-to-accretion-rate conversion (which would give
-    ``log_mdot`` a second, incompatible meaning depending which response
+    ``log_mdot_msun_yr`` a second, incompatible meaning depending which response
     function a band uses). ``T_1`` does not depend on ``viscous_slope``, so
-    ``(log_mdot, viscous_slope)`` map one-to-one onto Starkey et al. (2017)'s
+    ``(log_mdot_msun_yr, viscous_slope)`` map one-to-one onto Starkey et al. (2017)'s
     ``(T_1, alpha)``. Only the disk's *inner* edge (the ISCO) and the
     lamppost height use real physical constants (G, c, M_sun), since that
     conversion needs no separate accretion-rate calibration.
@@ -531,7 +546,7 @@ def thin_disk_response(
     Parameters
     ----------
     tau_grid : array_like, shape (n_tau,)
-    log_mdot, wavelength, inclination : array_like
+    log_mdot_msun_yr, wavelength, inclination : array_like
         Same meaning and units as in :func:`response_function`.
     M_BH : float
         Fixed black hole mass (solar masses).
@@ -612,7 +627,7 @@ def thin_disk_response(
     psi : array_like, shape (n_tau,)
         Normalised response evaluated at ``tau_grid``, zero for tau < 0.
     """
-    r_wien = wien_radius(log_mdot, wavelength, M_BH, viscous_slope)
+    r_wien = wien_radius(log_mdot_msun_yr, wavelength, M_BH, viscous_slope)
     rs = _schwarzschild_radius_light_days(M_BH)
     r_in = 3.0 * rs
     hx = lamppost_height_rs * rs
@@ -645,11 +660,11 @@ def thin_disk_response(
     disc = A ** 2 - hd ** 2 * one_m_s2
     sq = jnp.sqrt(jnp.where(disc > 0.0, disc, 1.0))
     # The temperature and the response weight are built in logs: at extreme
-    # log_mdot (or slope 0.5, where r_wien grows as T_1**2) r_wien**3 and T
+    # accretion rate (or slope 0.5, where r_wien grows as T_1**2) r_wien**3 and T
     # overflowed float32, and the hot-disc Planck term underflowed, giving a NaN
-    # potential or gradient at grid points the nested solve visits (log_mdot ~ 23
-    # on CREAM-like data). Analytically the response is unchanged.
-    log_t1 = jnp.log(disk_t1_kelvin(log_mdot, M_BH))
+    # potential or gradient at grid points the nested solve visits (~21 dex above
+    # typical_log_mdot on CREAM-like data). Analytically the response is unchanged.
+    log_t1 = jnp.log(disk_t1_kelvin(log_mdot_msun_yr, M_BH))
     log_rw = (log_t1 + jnp.log(wavelength / _WIEN_B_ANGSTROM_KELVIN)) / viscous_slope  # ln r_wien
     log_x_ref = 0.5 * jnp.logaddexp(2.0 * log_rw, 2.0 * jnp.log(hx))
     log_hc_k_lambda = jnp.log(_HC_OVER_K_ANGSTROM / wavelength)
@@ -804,13 +819,13 @@ class ThinDiskResponseTable(NamedTuple):
     incl_grid: jnp.ndarray       # (n_incl,) degrees
     u_grid: jnp.ndarray          # (n_u,) days, dimensionless-lag axis at the reference mdot/wavelength
     templates: jnp.ndarray       # (n_incl, n_u)
-    tau_ref_reference: float     # lag_scaling(reference_log_mdot, reference_wavelength, M_BH)
+    tau_ref_reference: float     # lag_scaling(reference_log_mdot_msun_yr, reference_wavelength, M_BH)
 
 
 def build_thin_disk_response_table(
     M_BH,
     incl_grid=None,
-    reference_log_mdot: float = 0.0,
+    reference_log_mdot_msun_yr: Optional[float] = None,
     reference_wavelength: float = 5000.0,
     u_max_factor: float = 15.0,
     n_u: int = 1200,
@@ -848,14 +863,16 @@ def build_thin_disk_response_table(
     incl_grid : array_like, optional
         Inclinations (degrees) to precompute templates at. Defaults to
         every 2.5 degrees from 0 to 90 (37 templates).
-    reference_log_mdot, reference_wavelength : float
-        The one (log_mdot, wavelength) pair templates are actually computed
-        at; every other (log_mdot, wavelength) is reached by stretching.
+    reference_log_mdot_msun_yr, reference_wavelength : float
+        The one (log_mdot_msun_yr, wavelength) pair templates are actually computed
+        at; every other (log_mdot_msun_yr, wavelength) is reached by stretching.
+        The accretion rate (log10 solar masses per year) defaults to
+        :func:`typical_log_mdot`.
     u_max_factor : float
         The template's own lag axis spans ``[-0.05, u_max_factor] *
         tau_ref_reference``. Must be generous enough that, after stretching,
         it still covers whatever part of the real ``tau_grid`` matters for
-        the (log_mdot, wavelength) values a fit actually visits -- lookups
+        the (log_mdot_msun_yr, wavelength) values a fit actually visits -- lookups
         outside this range return 0 (see :func:`thin_disk_response_from_table`),
         which is safe but silently loses accuracy in the tail if too small.
     n_u : int
@@ -873,7 +890,9 @@ def build_thin_disk_response_table(
     else:
         incl_grid = jnp.asarray(incl_grid)
 
-    tau_ref_reference = float(lag_scaling(reference_log_mdot, reference_wavelength, M_BH))
+    if reference_log_mdot_msun_yr is None:
+        reference_log_mdot_msun_yr = float(typical_log_mdot(M_BH))
+    tau_ref_reference = float(lag_scaling(reference_log_mdot_msun_yr, reference_wavelength, M_BH))
     u_grid = jnp.linspace(-0.05 * tau_ref_reference, u_max_factor * tau_ref_reference, n_u)
 
     # Templates are built *unsmoothed* (smoothing_days=0.0), even though
@@ -888,7 +907,7 @@ def build_thin_disk_response_table(
     thin_disk_kwargs.setdefault("smoothing_days", 0.0)
     templates = jnp.stack([
         thin_disk_response(
-            u_grid, reference_log_mdot, reference_wavelength, float(incl), M_BH,
+            u_grid, reference_log_mdot_msun_yr, reference_wavelength, float(incl), M_BH,
             n_phi=n_phi, **thin_disk_kwargs,
         )
         for incl in incl_grid
@@ -901,7 +920,7 @@ def build_thin_disk_response_table(
 
 
 def thin_disk_response_from_table(
-    table: ThinDiskResponseTable, tau_grid, log_mdot, wavelength, inclination,
+    table: ThinDiskResponseTable, tau_grid, log_mdot_msun_yr, wavelength, inclination,
     smoothing_frac: float | None = None, smoothing_days: float | None = None,
     smoothing_log: float = DEFAULT_SMOOTHING_LOG,
 ):
@@ -915,7 +934,7 @@ def thin_disk_response_from_table(
        other lookup-table use in JAX) to get one dimensionless template for
        this exact inclination, still on the table's own ``u_grid``.
     2. Stretch that template onto the real ``tau_grid`` by
-       ``s = lag_scaling(log_mdot, wavelength, M_BH) / table.tau_ref_reference``
+       ``s = lag_scaling(log_mdot_msun_yr, wavelength, M_BH) / table.tau_ref_reference``
        -- i.e. evaluate it at ``tau_grid / s`` and divide by ``s`` to keep
        the area normalised to 1 under that change of variables -- which is
        exactly the "stretch to a different mdot" trick from
@@ -941,7 +960,7 @@ def thin_disk_response_from_table(
     ~13% peak error back to <1%, matching how close the two functions are
     without smoothing at all).
     """
-    tau_ref = lag_scaling(log_mdot, wavelength, table.M_BH)
+    tau_ref = lag_scaling(log_mdot_msun_yr, wavelength, table.M_BH)
     stretch = jnp.clip(tau_ref / table.tau_ref_reference, 1e-6, None)
 
     psi_u = jax.vmap(lambda column: jnp.interp(inclination, table.incl_grid, column))(table.templates.T)
@@ -957,7 +976,7 @@ def build_thin_disk_response_fast(
     smoothing_log: float = DEFAULT_SMOOTHING_LOG, **table_kwargs,
 ) -> Callable:
     """Build and return a ready-to-use, interpolation-based response
-    function matching the standard ``(tau_grid, log_mdot, wavelength,
+    function matching the standard ``(tau_grid, log_mdot_msun_yr, wavelength,
     inclination, M_BH, ...)`` contract (CLAUDE.md decision #5) -- the
     one-call convenience wrapper around :func:`build_thin_disk_response_table`
     + :func:`thin_disk_response_from_table`::
@@ -980,9 +999,9 @@ def build_thin_disk_response_fast(
     """
     table = build_thin_disk_response_table(M_BH, **table_kwargs)
 
-    def _response(tau_grid, log_mdot, wavelength, inclination, M_BH=None, **kwargs):
+    def _response(tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH=None, **kwargs):
         return thin_disk_response_from_table(
-            table, tau_grid, log_mdot, wavelength, inclination,
+            table, tau_grid, log_mdot_msun_yr, wavelength, inclination,
             smoothing_frac=smoothing_frac, smoothing_days=smoothing_days, smoothing_log=smoothing_log,
         )
 

@@ -128,15 +128,15 @@ hyperparameters.
 **Absolute calibration -- a deliberate departure from the Fortran.** The
 Fortran derives `K_visc`/`K_irr` from `G`, the Stefan-Boltzmann constant,
 and a physical `Mdot` (itself derived from an Eddington ratio via
-`myedrat2mdot`). Doing the same here would give `log_mdot` two different,
+`myedrat2mdot`). Doing the same here would give `log_mdot_msun_yr` two different,
 incompatible physical meanings depending which response function a band
 used. Instead, `thin_disk_response` reuses
-`forward_model.lag_scaling(log_mdot, wavelength, M_BH)` -- the same
+`forward_model.lag_scaling(log_mdot_msun_yr, wavelength, M_BH)` -- the same
 function `response_function` uses -- to fix a characteristic radius
 `r_ref` (in light-days), and Wien's displacement law,
 `wavelength * T = b`, to fix the temperature at that radius. This ties the
 two response families together: switching a band from `response_function`
-to `thin_disk_response` keeps `log_mdot`'s meaning the same. Only the
+to `thin_disk_response` keeps `log_mdot_msun_yr`'s meaning the same. Only the
 disk's inner edge and the lamppost height use real physical constants (G,
 c, M_sun) directly, since that conversion needs no accretion-rate
 calibration at all.
@@ -372,7 +372,7 @@ defaults change.
 
 ### Inclination sweep (fixed accretion rate)
 
-`log_mdot = 0` throughout; only inclination varies.
+Ṁ = 0.011 M☉/yr (`typical_log_mdot(1e8)`, −1.95) throughout; only inclination varies.
 
 ![thin_disk_response, varying inclination](images/thin_disk_response_inclination_sweep.png)
 
@@ -403,23 +403,23 @@ lamppost height in the delay).*
 
 ### Accretion-rate sweep (fixed face-on inclination)
 
-`inclination = 0` throughout; only `log_mdot` varies.
+`inclination = 0` throughout; only `log_mdot_msun_yr` varies.
 
 ![thin_disk_response, varying mdot](images/thin_disk_response_mdot_sweep.png)
 
-| log_mdot | mdot | mean lag (days) | `lag_scaling` reference radius (days) |
+| log_mdot_msun_yr | Ṁ (M☉/yr) | mean lag (days) | `lag_scaling` reference radius (days) |
 |---:|---:|---:|---:|
-| -1.0 | 0.10 | 0.302 | 0.464 |
-| -0.5 | 0.32 | 0.415 | 0.681 |
-| +0.0 | 1.00 | 0.585 | 1.000 |
-| +0.5 | 3.16 | 0.841 | 1.468 |
-| +1.0 | 10.00 | 1.223 | 2.154 |
+| −2.95 | 0.0011 | 0.302 | 0.464 |
+| −2.45 | 0.0035 | 0.415 | 0.681 |
+| −1.95 | 0.0111 | 0.585 | 1.000 |
+| −1.45 | 0.0352 | 0.841 | 1.468 |
+| −0.95 | 0.1113 | 1.223 | 2.154 |
 
 *Updated September 2026, for the current response (causal smoothing and the
 lamppost height in the delay).*
 
 The mean lag grows monotonically with `mdot`, close to the `mdot**(1/3)`
-scaling that `lag_scaling` uses. From `log_mdot=-1` to `+1` it grows by a
+scaling that `lag_scaling` uses. Over those two decades in Ṁ it grows by a
 factor of 4.05, against an ideal `100**(1/3) = 4.64`. The difference comes
 from the fixed-size terms: the inner-boundary term in section 2 and the
 lamppost height (about 0.035 light-days here). Both matter most for the
@@ -438,7 +438,7 @@ exact mean.
 Even with section 4's analytic reduction, NUTS calls a band's response
 function on every leapfrog step of every sample, so there is still a real
 cost to recomputing the full integral (plus section 5's smoothing
-convolution) that often when only `log_mdot` and `inclination` change
+convolution) that often when only `log_mdot_msun_yr` and `inclination` change
 step to step, not the disk's physics.
 
 `build_thin_disk_response_table` / `build_thin_disk_response_fast`
@@ -459,12 +459,12 @@ from discotau.forward_model import build_thin_disk_response_fast
 model.response_function = build_thin_disk_response_fast(M_BH=1e8)
 ```
 
-Concretely, for a given `(log_mdot, wavelength, inclination)`:
+Concretely, for a given `(log_mdot_msun_yr, wavelength, inclination)`:
 
 1. **Interpolate over inclination** (`jnp.interp`, linear, differentiable
    in `inclination` almost everywhere) against the precomputed template
    family, giving one dimensionless template on the table's own lag axis.
-2. **Stretch** that template by `s = lag_scaling(log_mdot, wavelength,
+2. **Stretch** that template by `s = lag_scaling(log_mdot_msun_yr, wavelength,
    M_BH) / tau_ref_reference`: evaluate it at `tau_grid / s` and divide by
    `s` to keep the area normalised to 1 under that change of variables.
 3. **Smooth**, at this query's own `tau_ref` (not the table's reference
@@ -521,7 +521,7 @@ not a way to make `thin_disk_response` competitive with the skew-normal's
 cost -- see `CLAUDE.md` decision #9 for a note on a banded/truncated
 smoothing kernel that was prototyped and found faster still, but has a
 real edge-handling bug and wasn't pursued given how small the absolute
-costs already are once properly jitted. Gradients w.r.t. `log_mdot` and
+costs already are once properly jitted. Gradients w.r.t. `log_mdot_msun_yr` and
 `inclination` are still non-zero (checked with `jax.grad`, including at
 an inclination *not* on the precomputed grid, the same discipline used
 for `thin_disk_response` and `tophat_response_free`'s gradients elsewhere
@@ -541,10 +541,10 @@ side.
 
 *Updated September 2026, for the current response.*
 
-- **Near the table's reference point** (`log_mdot=0`, `wavelength=5000`
+- **Near the table's reference point** (`typical_log_mdot(M_BH)`, `wavelength=5000`
   Angstrom), the two curves are visually indistinguishable.
 - **Far from it** (`inclination=85` degrees, `wavelength=7000` Angstrom,
-  `log_mdot=-0.5`), the fast path now overshoots the exact near-side spike by
+  0.5 dex below that), the fast path now overshoots the exact near-side spike by
   about 30 per cent of the peak, while the tail agrees to a few per cent. It
   was 0.7 per cent before the causal smoothing replaced the Gaussian in τ.
   - The old smoothing blurred the spike on both curves alike, hiding their
@@ -573,10 +573,10 @@ from discotau.responses import get_response
 import discotau.model as model
 
 # use the exact disk integral directly (default: smoothed, see section 5)
-psi = thin_disk_response(tau_grid, log_mdot, wavelength, inclination, M_BH)
+psi = thin_disk_response(tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH)
 
 # unsmoothed / exact mean-lag-independence version
-psi_exact = thin_disk_response(tau_grid, log_mdot, wavelength, inclination, M_BH, smoothing_days=0.0)
+psi_exact = thin_disk_response(tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH, smoothing_days=0.0)
 
 # or swap it in for "physical"-mode bands (see CLAUDE.md decision #5)
 model.response_function = get_response("thin_disk")
@@ -593,7 +593,7 @@ full parameter list (`viscous_slope`, `include_irradiation`,
 `irradiation_slope`, `irradiation_weight`, `lamppost_height_rs`, `n_phi`,
 `smoothing_frac`, `smoothing_days`), `build_thin_disk_response_table`'s
 docstring for the fast path's own precompute parameters (`incl_grid`,
-`reference_log_mdot`, `reference_wavelength`, `u_max_factor`, `n_u`),
+`reference_log_mdot_msun_yr`, `reference_wavelength`, `u_max_factor`, `n_u`),
 `thin_disk_response_from_table`'s for its own smoothing parameters, and
 `README.md`'s "Swapping the response function" section for how these
 relate to the default skew-normal and to `discotau/responses.py`'s

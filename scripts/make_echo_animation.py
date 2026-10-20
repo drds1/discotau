@@ -57,14 +57,14 @@ import numpy as np
 from PIL import Image
 from scipy.ndimage import gaussian_filter
 
-from discotau.forward_model import disk_temperature_profile, thin_disk_response
+from discotau.forward_model import disk_temperature_profile, thin_disk_response, typical_log_mdot
 from discotau.plotting import blackbody_to_colour, wavelength_to_colour
 
 # The disc: Fairall 9's black-hole mass, with an accretion rate that runs the
 # drawn disc from ~30,000 K inside to ~2,800 K at its rim (blue-white to
 # orange-red), viewed past the torus as a type 1 AGN is.
 M_BH = 2.55e8  # Msun
-LOG_MDOT = 0.5
+LOG_MDOT = float(typical_log_mdot(M_BH)) + 0.5  # log10 Msun/yr (0.18 Msun/yr)
 INCLINATION = 58.0  # degrees
 RS_LD = 2 * 6.674e-8 * M_BH * 1.989e33 / 2.998e10 ** 2 / (2.998e10 * 86400)  # Schwarzschild radius, light-days
 R_IN, H_LAMP = 3 * RS_LD, 3 * RS_LD  # inner edge and lamppost height, light-days

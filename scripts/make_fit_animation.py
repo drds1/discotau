@@ -22,9 +22,9 @@ column is wider than the other two -- ``width_ratios``):
   hot centre, through white, to orange-red in the cool outer disk, on a
   black background. The colour-to-temperature mapping (a log-temperature
   colour bar in Kelvin) is fixed across frames, so a change in colour is a
-  genuine change in temperature as log_mdot varies, not a rescaled colour
+  genuine change in temperature as log_mdot_msun_yr varies, not a rescaled colour
   map. Geometry is fixed; only the colours change per frame. The title reports the
-  frame's current log_mdot/inclination values.
+  frame's current log_mdot_msun_yr/inclination values.
 * top-right: a schematic side-on view showing the disk plane as a line
   through the centre, tilting by the inclination angle (vertical at
   inclination=0/face-on, rotating toward horizontal/aligned with the
@@ -165,14 +165,14 @@ def main():
     tau_grid_np = np.asarray(ef.tau_grid)
 
     S, C = jnp.asarray(ef.samples["S"]), jnp.asarray(ef.samples["C"])
-    log_mdot, inclination = jnp.asarray(ef.samples["log_mdot"]), jnp.asarray(ef.samples["inclination"])
-    log_mdot_np, inclination_np = np.asarray(log_mdot), np.asarray(inclination)
+    log_mdot_msun_yr, inclination = jnp.asarray(ef.samples["log_mdot_msun_yr"]), jnp.asarray(ef.samples["inclination"])
+    log_mdot_np, inclination_np = np.asarray(log_mdot_msun_yr), np.asarray(inclination)
 
     def echo_and_psi(S_s, C_s, log_mdot_s, incl_s, wavelength, S_band_s, C_band_s):
         # Via the model module's attribute (not a direct forward_model import)
         # so a swapped model.response_function is honoured here too -- see
         # CLAUDE.md decision #5.
-        psi = _model.response_function(ef.tau_grid, log_mdot=log_mdot_s, wavelength=wavelength, inclination=incl_s, M_BH=ef.M_BH)
+        psi = _model.response_function(ef.tau_grid, log_mdot_msun_yr=log_mdot_s, wavelength=wavelength, inclination=incl_s, M_BH=ef.M_BH)
         A, B = transfer_coeffs(ef.tau_grid, psi, ef.freqs)
         echo = S_band_s * compute_echo(S_s, C_s, ef.freqs, A, B, t_fine) + C_band_s
         return echo, psi
@@ -182,7 +182,7 @@ def main():
         S_band, C_band = jnp.asarray(ef.samples[f"S_{name}"]), jnp.asarray(ef.samples[f"C_{name}"])
         echo_all, psi_all = jax.vmap(
             echo_and_psi, in_axes=(0, 0, 0, 0, None, 0, 0)
-        )(S, C, log_mdot, inclination, d["wavelength"], S_band, C_band)
+        )(S, C, log_mdot_msun_yr, inclination, d["wavelength"], S_band, C_band)
         y_by_band[name] = np.asarray(echo_all)
         psi_by_band[name] = np.asarray(psi_all)
     driver_samples = np.asarray(jax.vmap(lambda S_s, C_s: driver_at(S_s, C_s, ef.freqs, t_fine))(S, C))
@@ -208,7 +208,7 @@ def main():
 
     # -- disk-panel geometry (fixed across frames; only colour/tilt vary) --
     r_in = 3.0 * float(_schwarzschild_radius_light_days(ef.M_BH))
-    tau_ref_per_sample = np.asarray(lag_scaling(log_mdot, _DISK_REFERENCE_WAVELENGTH, ef.M_BH))
+    tau_ref_per_sample = np.asarray(lag_scaling(log_mdot_msun_yr, _DISK_REFERENCE_WAVELENGTH, ef.M_BH))
     r_out = 6.0 * float(tau_ref_per_sample.max())
     # Geometric ring edges: resolves the small, hot inner disk (most of the
     # colour change happens within ~tau_ref) without distorting the face-on
@@ -222,7 +222,7 @@ def main():
     # its inner edge -- the innermost edge is the ISCO, where T -> 0.
     T_per_r = np.asarray(jax.vmap(
         lambda lm: disk_temperature_profile(r_mid, lm, _DISK_REFERENCE_WAVELENGTH, ef.M_BH)
-    )(log_mdot))  # (n_frames, n_r - 1)
+    )(log_mdot_msun_yr))  # (n_frames, n_r - 1)
     T_grid_all = np.broadcast_to(T_per_r[:, :, None], (len(log_mdot_np), _DISK_N_R - 1, _DISK_N_PHI - 1))
 
     bof = 2.0 * np.asarray(ef.extra_fields["potential_energy"])
@@ -349,7 +349,7 @@ def main():
             envelope_artists.append(ax_psi.fill_between(tau_grid_np, psi_pct[name][1, i], psi_pct[name][3, i], color=colour, alpha=0.3, zorder=0))
 
         disk_mesh.set_array(T_grid_all[i].ravel())
-        disk_title.set_text(f"log_mdot = {log_mdot_np[i]:.2f}, inclination = {inclination_np[i]:.1f}°")
+        disk_title.set_text(f"log_mdot_msun_yr = {log_mdot_np[i]:.2f}, inclination = {inclination_np[i]:.1f}°")
 
         incl_rad = np.deg2rad(float(inclination_np[i]))
         dx, dy = L * np.sin(incl_rad), L * np.cos(incl_rad)

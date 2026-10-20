@@ -2,7 +2,7 @@
 
 `ef.optimise()` gives the posterior of a fit without running MCMC. Since
 October 2026 it does so with a **nested Laplace approximation**: it maps the
-posterior of the accretion rate (`log_mdot`) and the inclination on a grid,
+posterior of the accretion rate (`log_mdot_msun_yr`) and the inclination on a grid,
 handles every other parameter analytically or nearly so at each grid point,
 and checks the result against the exact posterior. It is about as fast as the
 single-Gaussian solve it replaces, and much more honest when the data cannot
@@ -12,9 +12,9 @@ pin the disc down.
 ef.build_grid()
 ef.optimise()                                  # nested Laplace (also: ef.nested_laplace())
 print(ef.nested_laplace_result["k_hat"])       # below 0.7: the result is reliable
-ef.plot_landscape()                            # the Badness-of-Fit map of log_mdot and inclination
+ef.plot_landscape()                            # the Badness-of-Fit map of log_mdot_msun_yr and inclination
 ef.plot_landscape_3d()                         # the same posterior as a 3-D mountain range
-ef.plot_sample_landscape_3d("dce_fraction_V", "log_mdot")  # any pair, from the samples
+ef.plot_sample_landscape_3d("dce_fraction_V", "log_mdot_msun_yr")  # any pair, from the samples
 ef.plot_corner()                               # every other plot and the report work as after .fit()
 
 ef.optimise(method="laplace")                  # the older single-Gaussian solve
@@ -28,7 +28,7 @@ point and fitted a Gaussian to the curvature there. That is exact when the
 posterior is Gaussian and good when it is close to it, which it is when the
 data constrain the disc well.
 
-When they don't, the posterior of `log_mdot` and the inclination stops looking
+When they don't, the posterior of `log_mdot_msun_yr` and the inclination stops looking
 like a Gaussian. Synthetic tests in the style of the CREAM paper (Starkey,
 Horne & Villforth 2016; random-walk driver, true M Mdot = 10^8 Msun^2/yr,
 inclination 30 degrees, g and i at SNR 100, 1-day cadence) found both kinds of
@@ -56,13 +56,13 @@ crosses between two basins once in hundreds of draws cannot weigh them.
 Most of the model's ~130 parameters are easy. The driver's Fourier
 coefficients and each band's offset enter every predicted light curve
 linearly, so they integrate out exactly. Of the ~10 that remain, only
-`log_mdot` and the inclination make the posterior awkward; the others (the
+`log_mdot_msun_yr` and the inclination make the posterior awkward; the others (the
 driver's amplitude `sigma_drw` and each band's gain) are close to Gaussian once
 those two are fixed.
 
 So the nested Laplace approximation does the obvious thing:
 
-1. **Lay `log_mdot` and the inclination out on a grid.** A grid follows
+1. **Lay `log_mdot_msun_yr` and the inclination out on a grid.** A grid follows
    whatever shape the posterior has, curved valleys and separate basins
    included.
 2. **At every grid point, deal with the rest.** Optimise the few remaining
@@ -92,7 +92,7 @@ adapted to discotau's structure.
   edge of the grid. Either means: cross-check with `.fit()`.
 - `ef.plot_landscape(truth=None)` draws the Badness-of-Fit map; it is also in
   `report.html` after the fit.
-- `grid_params` chooses the gridded parameters (default `log_mdot`,
+- `grid_params` chooses the gridded parameters (default `log_mdot_msun_yr`,
   `cos_inclination` and, when fitted, `temperature_slope`); `n_pass` and
   `n_fine` set the grid sizes.
 - `ef.optimise(method="laplace")` runs the single-Gaussian solve, with its
@@ -115,7 +115,7 @@ with $U$ NumPyro's potential in unconstrained coordinates, $\hat z_r(\theta)$
 the inner optimum and $H_{rr}$ its Hessian. The steps:
 
 1. **Find every mode.** A scout grid covers the prior range (cos i over its
-   whole support, `log_mdot` over ±3.3 prior standard deviations). A full
+   whole support, `log_mdot_msun_yr` over ±3.3 prior standard deviations). A full
    optimisation from each of its local maxima, from the usual data-anchored
    start and from random perturbations of it (the same restarts as
    `optimise(method="laplace")`, so the search is never weaker than that
@@ -123,7 +123,7 @@ the inner optimum and $H_{rr}$ its Hessian. The steps:
    peak, and each mode is weighed by its Laplace evidence. The scout grid's own values are not trusted to
    find modes: at SNR 1000 a 0.01-dex mode fell between scout points, and a
    version that zoomed in on the best scout value settled confidently on a
-   broader, wrong mode (log_mdot 4.91 ± 0.02 for a true 1.95).
+   broader, wrong mode (log_mdot_msun_yr 2.96 ± 0.02 for a true 0.00).
 2. **Size the box.** A box around the kept modes is refined pass by pass
    with small, cheap grids: extended wherever the posterior reaches an edge
    that is not a hard prior bound (a valley), and shrunk while it fills too
@@ -157,7 +157,7 @@ the inner optimum and $H_{rr}$ its Hessian. The steps:
 
 `ef.plot_landscape()` shows the grid as
 $\Delta\mathrm{BOF} = -2\,\Delta\log p$, the Badness of Fit of Starkey, Horne
-& Villforth (2016, eq. 12) with everything other than `log_mdot` and the
+& Villforth (2016, eq. 12) with everything other than `log_mdot_msun_yr` and the
 inclination optimised and integrated out at each point. The left panel is the
 scout grid over the whole prior range (every basin the search saw; its
 Laplace volume term is held fixed there, so it is approximate). The right
@@ -182,16 +182,16 @@ A single Laplace approximation gives an sd of ~0.15 for the first toy.
 with both solves and, as the reference, nested sampling of the identical
 marginalised posterior with nautilus (Lange 2023), an independent algorithm
 built for multimodal posteriors. g and i, SNR 100, 1-day cadence; truth
-log_mdot = 1.95, inclination 30 degrees:
+log_mdot_msun_yr = 0 (1 M☉/yr at 10⁸ M☉), inclination 30 degrees:
 
-| Seed | Method | log_mdot | Inclination (°) | Wall time |
+| Seed | Method | log_mdot_msun_yr | Inclination (°) | Wall time |
 |---|---|---|---|---|
-| 1 | `optimise(method="laplace")` | 1.99 ± 0.20 | 35.0 ± 11.0 | 113 s |
-| 1 | **`optimise()`, nested Laplace** | **2.61 ± 1.25** | **39.3 ± 18.1** | **190 s** |
-| 1 | nautilus (reference) | 2.59 ± 1.24 | 38.6 ± 17.9 | 2610 s |
-| 2 | `optimise(method="laplace")` | 4.34 ± 0.47 | 57.3 ± 7.7 | 118 s |
-| 2 | **`optimise()`, nested Laplace** | **3.71 ± 1.30** | **55.9 ± 15.7** | **167 s** |
-| 2 | nautilus (reference) | 3.79 ± 1.34 | 57.1 ± 15.4 | 1871 s |
+| 1 | `optimise(method="laplace")` | 0.04 ± 0.20 | 35.0 ± 11.0 | 113 s |
+| 1 | **`optimise()`, nested Laplace** | **0.66 ± 1.25** | **39.3 ± 18.1** | **190 s** |
+| 1 | nautilus (reference) | 0.64 ± 1.24 | 38.6 ± 17.9 | 2610 s |
+| 2 | `optimise(method="laplace")` | 2.39 ± 0.47 | 57.3 ± 7.7 | 118 s |
+| 2 | **`optimise()`, nested Laplace** | **1.76 ± 1.30** | **55.9 ± 15.7** | **167 s** |
+| 2 | nautilus (reference) | 1.84 ± 1.34 | 57.1 ± 15.4 | 1871 s |
 
 ![Seed 1: posteriors from each method](images/nested_laplace/gi_snr100_dt1_s1.png)
 
@@ -209,7 +209,7 @@ finds both but weighs them wrongly. On seed 2 it follows the valley end to end,
 into the 80-degree bound.
 
 Where the data do pin the disc down, the two solves agree: ugriz at SNR 1000
-gives log_mdot 1.948 ± 0.014 against 1.947 ± 0.014 (truth 1.95) and an
+gives log_mdot_msun_yr −0.005 ± 0.014 against −0.006 ± 0.014 (truth 0) and an
 inclination of 30.4 ± 1.1 degrees from both. On g, r and i at SNR 300 the
 nested solve handles the inclination's skew against face-on better (17.0 ±
 7.7 against 20.5 ± 7.9 degrees).

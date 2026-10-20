@@ -19,11 +19,11 @@ from discotau.synthetic import generate_synthetic_dataset
 from discotau.echofit import EchoFit
 
 
-def _tophat_response(tau_grid, log_mdot, wavelength, inclination, M_BH, width_frac=0.3):
+def _tophat_response(tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH, width_frac=0.3):
     """A flat-topped boxcar response -- unlike the default skew-normal,
     its values near the peak are (near-)identical, which is what the test
     below checks for."""
-    tau_mean = lag_scaling(log_mdot, wavelength, M_BH)
+    tau_mean = lag_scaling(log_mdot_msun_yr, wavelength, M_BH)
     half_width = jnp.clip(width_frac * tau_mean, 1e-3, None)
     raw = jnp.where(jnp.abs(tau_grid - tau_mean) <= half_width, 1.0, 0.0)
     trapz = jnp.trapezoid if hasattr(jnp, "trapezoid") else jnp.trapz
@@ -54,7 +54,7 @@ def _kurtosis(psi, tau_grid):
     curve) rather than a handful of near-peak grid points, so it isn't
     sensitive to this test's short 30+30-sample chain not converging
     tightly (the plotted psi is a *median across posterior draws*, so a
-    loosely-converged log_mdot/inclination posterior adds a little
+    loosely-converged log_mdot_msun_yr/inclination posterior adds a little
     point-to-point noise a purely local check would be sensitive to). A
     uniform/boxcar distribution's kurtosis is 1.8; a skew-normal's is much
     closer to a Gaussian's 3 -- a large, robust separation.

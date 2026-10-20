@@ -94,7 +94,7 @@ def _parse_args():
     parser.add_argument(
         "--free-lag-band", nargs=3, action="append", default=[], metavar=("NAME", "WAVELENGTH", "PATH"),
         help="A lag_mode=\"free\" band (repeatable) -- an independently inferred lag, "
-             "not tied to the others through M_BH/log_mdot. Needs --driver to be "
+             "not tied to the others through M_BH/log_mdot_msun_yr. Needs --driver to be "
              "identifiable (see CLAUDE.md decision #7).",
     )
     parser.add_argument(
@@ -175,7 +175,7 @@ def _parse_args():
         "--optimise", action="store_true",
         help=(
             "Direct solve instead of MCMC: EchoFit.optimise(), by default the nested Laplace "
-            "approximation (a grid over log_mdot and inclination, the rest integrated, "
+            "approximation (a grid over log_mdot_msun_yr and inclination, the rest integrated, "
             "importance-weighted; docs/nested_laplace.md), which follows ridges and second "
             "modes. Use MCMC for free-lag bands. Ignores the MCMC-only options and "
             "--title's checkpointing."

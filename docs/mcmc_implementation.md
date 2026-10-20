@@ -20,7 +20,7 @@ to.
 Plain Metropolis-Hastings proposes a new point by taking a small random
 step from the current one and accepting/rejecting it based on how the
 posterior density changes. For a model with dozens of correlated
-parameters (this one has `log_mdot`, `inclination`, `sigma_drw`, `tau_drw`,
+parameters (this one has `log_mdot_msun_yr`, `inclination`, `sigma_drw`, `tau_drw`,
 two Fourier coefficients per frequency, and two per band), a *random* step
 direction is a bad guess almost every time, so it takes a huge number of
 tiny steps to move anywhere useful.
@@ -111,7 +111,7 @@ runs): with the default diagonal mass matrix, NUTS spent a mean of **631
 leapfrog steps per sample**, clustered right at the `max_tree_depth`
 ceiling (`2**10 - 1 = 1023`); with `dense_mass=True`, that dropped to a
 mean of **88 steps per sample**, a ~7x reduction, with the underlying
-recovery accuracy (`log_mdot`, the well-identified parameter) essentially
+recovery accuracy (`log_mdot_msun_yr`, the well-identified parameter) essentially
 unchanged.
 
 ![Histogram of leapfrog steps per NUTS sample: the default diagonal mass matrix clusters near the max-tree-depth ceiling around 500-1023 steps, while dense_mass=True clusters much lower, around 50-130 steps](images/dense_mass_num_steps.png)

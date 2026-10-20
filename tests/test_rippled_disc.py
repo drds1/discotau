@@ -15,7 +15,7 @@ import pytest
 import discotau.model as model_module
 from discotau import EchoFit
 from discotau import disc_sed
-from discotau.forward_model import disk_t1_kelvin, thin_disk_response
+from discotau.forward_model import disk_t1_kelvin, thin_disk_response, typical_log_mdot
 from discotau.grid_utils import graded_tau_grid
 from discotau.responses import get_response
 from discotau.rippled_disc import (
@@ -30,7 +30,7 @@ from discotau.rippled_disc import (
 from discotau.synthetic import generate_synthetic_dataset
 
 M_BH = 7e7
-LOG_MDOT = 0.0587  # a viscous disc at 1500 K at 5 light-days, as in the paper's NGC 5548 example
+LOG_MDOT = float(typical_log_mdot(M_BH)) + 0.0587  # a viscous disc at 1500 K at 5 light-days, as in the paper's NGC 5548 example
 TAU = jnp.asarray(graded_tau_grid(30.0, 600))
 
 
@@ -46,8 +46,8 @@ def test_flat_disc_matches_thin_disk_response(wavelength, inclination):
     """A flat disc without irradiation heating is thin_disk_response's viscous
     disc: the 2-D quadrature here and the exact 1-D azimuthal reduction there
     must give the same delays."""
-    psi = rippled_disc_response(TAU, 0.0, wavelength, inclination, M_BH, lamppost_efficiency=0.0)
-    ref = thin_disk_response(TAU, 0.0, wavelength, inclination, M_BH, include_irradiation=False)
+    psi = rippled_disc_response(TAU, typical_log_mdot(M_BH), wavelength, inclination, M_BH, lamppost_efficiency=0.0)
+    ref = thin_disk_response(TAU, typical_log_mdot(M_BH), wavelength, inclination, M_BH, include_irradiation=False)
     assert mean_delay(TAU, psi) == pytest.approx(mean_delay(TAU, ref), rel=0.01)
     assert _median(TAU, psi) == pytest.approx(_median(TAU, ref), rel=0.01)
 
@@ -72,7 +72,7 @@ def test_convex_disc_is_shadowed_beyond_r_beta():
     """Starkey et al. eq. 16-17: a convex power law (beta < 1) is lit only
     inside r_beta = r_1 (H_LP / (H_1 (1 - beta)))**(1 / beta)."""
     h1, beta = 0.05, 0.5
-    s = disc_surface(0.0, M_BH, height=h1, r_ref=1.0, beta=beta, r_out=20.0)
+    s = disc_surface(typical_log_mdot(M_BH), M_BH, height=h1, r_ref=1.0, beta=beta, r_out=20.0)
     r, lit = np.asarray(s["r"]), np.asarray(s["lit"])
     r_beta = (s["h_lp"] / (h1 * (1 - beta))) ** (1 / beta)
     assert np.all(lit[r < 0.95 * r_beta] == 1.0)
@@ -147,9 +147,9 @@ def test_gradients_are_finite():
 def test_flat_disc_spectrum_matches_disc_sed():
     """A flat disc's spectrum (no irradiation heating) is disc_sed's viscous one."""
     lam = np.array([2000.0, 5000.0, 9000.0])
-    t1 = float(disk_t1_kelvin(1.0, 1e8))
+    t1 = float(disk_t1_kelvin(typical_log_mdot(1e8) + 1.0, 1e8))
     ref = disc_sed.disc_fnu_at_1cm(lam, 0.0, t1, 0.75, 30.0, 1e8, include_irradiation=False) / (100 * disc_sed.MPC_CM) ** 2
-    ours = rippled_disc_fnu(lam, 1.0, 30.0, 1e8, dl_mpc=100.0, lamppost_efficiency=0.0, r_out=1000.0, n_r=4000)
+    ours = rippled_disc_fnu(lam, typical_log_mdot(1e8) + 1.0, 30.0, 1e8, dl_mpc=100.0, lamppost_efficiency=0.0, r_out=1000.0, n_r=4000)
     np.testing.assert_allclose(ours, ref, rtol=0.01)
 
 
@@ -161,12 +161,12 @@ def test_registered_response():
 @pytest.mark.slow
 def test_rimmed_disc_recovery_and_flat_disc_bias(monkeypatch):
     """Light curves from the NGC 5548 rim: the rimmed model (geometry fixed at the
-    truth) recovers log_mdot and the inclination, while a flat thin disc fitted to
+    truth) recovers log_mdot_msun_yr and the inclination, while a flat thin disc fitted to
     the same data is far worse and much hotter, the signature of the disc-size
     problem."""
     bands = {"w2": 1928.0, "g": 4770.0, "i": 7625.0, "z": 9134.0}
     rim = functools.partial(rippled_disc_response, **NGC5548_RIM)
-    data = generate_synthetic_dataset(bands=bands, M_BH=M_BH, log_mdot_true=LOG_MDOT, inclination_true=45.0,
+    data = generate_synthetic_dataset(bands=bands, M_BH=M_BH, log_mdot_msun_yr_true=LOG_MDOT, inclination_true=45.0,
                                       t_span=250.0, n_obs_per_band=120, noise_level=0.02, tau_max=30.0, seed=3,
                                       response=rim)
 
@@ -184,11 +184,11 @@ def test_rimmed_disc_recovery_and_flat_disc_bias(monkeypatch):
         return ef
 
     ef_rim, ef_flat = fit(rim), fit(thin_disk_response)
-    lm = np.asarray(ef_rim.samples["log_mdot"])
+    lm = np.asarray(ef_rim.samples["log_mdot_msun_yr"])
     # Within 0.1 dex (this four-band realisation lands 0.08 dex low, ~4 Laplace sd;
     # the six-band set in docs/rippled_disc.md lands within 1 sd): small next to
     # the flat disc's 1.5 dex bias below.
     assert abs(np.median(lm) - LOG_MDOT) < 0.1
     assert abs(np.median(ef_rim.samples["inclination"]) - 45.0) < 5.0
-    assert np.median(ef_flat.samples["log_mdot"]) > LOG_MDOT + 0.5
+    assert np.median(ef_flat.samples["log_mdot_msun_yr"]) > LOG_MDOT + 0.5
     assert ef_rim.log_evidence > ef_flat.log_evidence + 100.0

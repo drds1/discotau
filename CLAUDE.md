@@ -1379,6 +1379,33 @@ match; `discotau.__version__` reads the installed metadata);
     new default changes nothing where the old one was converged. Fits
     made before this used 3 per cent (NGC 5548, the CREAM-paper reproduction, the code comparison).
 
+
+36. **The accretion rate is `log_mdot_msun_yr`, log10 of Ṁ in solar masses per year, not the old
+    dimensionless `log_mdot` (October 2026, a direct request: "inputs and outputs of the code should be in
+    human readable units").** `lag_scaling` and `disk_t1_kelvin` are now written from the physics, with no
+    pivot constants: `T_1**4 = 3 G M_BH Mdot / (8 pi sigma (1 light-day)**3)` and the lag is the Wien
+    radius `(T_1 lambda / b)**(4/3)`; `log_mdot_from_t1` is the inverse. The old parameter was exactly
+    `log_mdot_msun_yr - typical_log_mdot(M_BH)` (`typical_log_mdot = log10(M_BH) - 9.953`, about 0.5 per
+    cent of Eddington at any mass), so it was a relabelling with no change to any fit:
+    - the prior is `Normal(typical_log_mdot(M_BH), 5)`, the old `Normal(0, 5)`;
+    - mass-dependent defaults (the response table's reference point, the grid check's conservative rate,
+      the synthetic truth) are defined from `typical_log_mdot`;
+    - starts are shifted the same way, so they are the old ones. NumPyro starts unconstrained sites
+      uniformly in (-2, 2), which in Msun/yr would sit ~2 dex high at 1e8 Msun (a small-table fit-tier test
+      failed on it). The direct solves shift the drawn start (`_initialize_marginal_model`, exact: same
+      draw, same potential as the old code, checked against the committed library); NUTS uses
+      `_shifted_mdot_init`, a `functools.partial` because NumPyro reads `init_strategy.func`;
+    - the old lag law was `tau ~ M**(2/3) mdot**(1/3)` only because the dimensionless rate carried 1/M:
+      with Ṁ in Msun/yr it is `tau ~ (M Mdot)**(1/3) lambda**(4/3)` (README and fitting guide fixed).
+    **A new name, not the old one with a new meaning** (the user's choice): an old value or
+    `fixed_params={"log_mdot": ...}` now fails loudly (`_validate_before_fit` says how to convert, `resume()`
+    refuses a pre-rename checkpoint) instead of silently meaning something ~35x different at Fairall 9's mass
+    (its flux-matched 0.666 is now -0.881, 0.13 Msun/yr; the fitted 2.34 is 0.79, 6.2 Msun/yr). Samples
+    also carry `mdot_msun_yr`. Numbers quoted elsewhere in this file before #36 are in the old units (add
+    `typical_log_mdot(M_BH)`: -1.953 at 1e8 Msun). The untracked paper scripts in `experiments/` still use
+    the old name and need the library from before this change. Quick tests in `test_quick_settings.py`
+    (T_1 against an independent cgs calculation, the inverse, the prior centre, the old-name error, the
+    starts).
 ## Known rough edges / things to check before trusting results on real data
 
 - `synthetic.py`'s ground truth is generated with the *same* forward model

@@ -2,6 +2,7 @@ import numpy as np
 import jax.numpy as jnp
 
 from discotau.forward_model import (
+    typical_log_mdot,
     lag_scaling,
     response_function,
     transfer_coeffs,
@@ -15,23 +16,23 @@ _np_trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
 
 def test_lag_scaling_increases_with_wavelength():
     M_BH = 1e8
-    log_mdot = 0.0
-    tau_short = lag_scaling(log_mdot, 3000.0, M_BH)
-    tau_long = lag_scaling(log_mdot, 9000.0, M_BH)
+    log_mdot_msun_yr = typical_log_mdot(M_BH)
+    tau_short = lag_scaling(log_mdot_msun_yr, 3000.0, M_BH)
+    tau_long = lag_scaling(log_mdot_msun_yr, 9000.0, M_BH)
     assert tau_long > tau_short
 
 
 def test_lag_scaling_increases_with_mdot():
     M_BH = 1e8
-    tau_low = lag_scaling(-1.0, 5000.0, M_BH)
-    tau_high = lag_scaling(1.0, 5000.0, M_BH)
+    tau_low = lag_scaling(typical_log_mdot(M_BH) - 1.0, 5000.0, M_BH)
+    tau_high = lag_scaling(typical_log_mdot(M_BH) + 1.0, 5000.0, M_BH)
     assert tau_high > tau_low
 
 
 def test_response_function_is_causal_and_normalised():
     tau_grid = jnp.linspace(-5.0, 60.0, 500)
     psi = response_function(
-        tau_grid, log_mdot=0.0, wavelength=5000.0, inclination=30.0, M_BH=1e8
+        tau_grid, log_mdot_msun_yr=typical_log_mdot(1e8), wavelength=5000.0, inclination=30.0, M_BH=1e8
     )
     psi_np = np.asarray(psi)
     tau_np = np.asarray(tau_grid)
@@ -47,7 +48,7 @@ def test_compute_echo_matches_direct_convolution():
 
     tau_grid = jnp.linspace(0.0, 30.0, 2000)
     psi = response_function(
-        tau_grid, log_mdot=0.0, wavelength=5000.0, inclination=10.0, M_BH=1e8
+        tau_grid, log_mdot_msun_yr=typical_log_mdot(1e8), wavelength=5000.0, inclination=10.0, M_BH=1e8
     )
     A, B = transfer_coeffs(tau_grid, psi, freqs)
 

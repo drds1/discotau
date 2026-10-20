@@ -49,7 +49,7 @@ def test_title_run_writes_expected_outputs(tmp_path):
     ):
         assert (ef.run_dir / fname).exists(), f"missing {fname}"
 
-    assert len(ef.samples["log_mdot"]) == 20
+    assert len(ef.samples["log_mdot_msun_yr"]) == 20
 
 
 @pytest.mark.fit
@@ -83,29 +83,29 @@ def test_resume_continues_an_interrupted_fit(tmp_path, monkeypatch):
     monkeypatch.setattr(echofit_mod, "run_mcmc_chunked", real_chunked)
 
     checkpoint_samples = np.load(ef.run_dir / "checkpoint" / "samples.npz")
-    assert len(checkpoint_samples["log_mdot"]) == 20
+    assert len(checkpoint_samples["log_mdot_msun_yr"]) == 20
 
     # Resume in a *fresh* instance, like a new process would.
     ef2 = EchoFit.resume("resume_unit_test", output_dir=str(tmp_path))
     assert ef2.run_dir == ef.run_dir  # same run, not a new timestamped one
     ef2.fit(progress_bar=False)  # no args -> reuses the original run's config
 
-    assert len(ef2.samples["log_mdot"]) == 50
+    assert len(ef2.samples["log_mdot_msun_yr"]) == 50
     final_checkpoint = np.load(ef.run_dir / "checkpoint" / "samples.npz")
-    assert len(final_checkpoint["log_mdot"]) == 50
+    assert len(final_checkpoint["log_mdot_msun_yr"]) == 50
 
     chains = np.load(ef.run_dir / "chains.npz")
-    assert len(chains["log_mdot"]) == 50
+    assert len(chains["log_mdot_msun_yr"]) == 50
 
     # The pre-kill samples should be preserved verbatim (loaded from the
     # checkpoint, not re-simulated with different draws), and the resumed
     # run should have actually continued sampling rather than, say,
     # padding with repeats of the same 20 samples.
     np.testing.assert_array_equal(
-        checkpoint_samples["log_mdot"], final_checkpoint["log_mdot"][:20]
+        checkpoint_samples["log_mdot_msun_yr"], final_checkpoint["log_mdot_msun_yr"][:20]
     )
     assert not np.array_equal(
-        final_checkpoint["log_mdot"][:20], final_checkpoint["log_mdot"][20:40]
+        final_checkpoint["log_mdot_msun_yr"][:20], final_checkpoint["log_mdot_msun_yr"][20:40]
     )
 
 
@@ -141,7 +141,7 @@ def test_report_every_refreshes_report_mid_fit(tmp_path, monkeypatch):
 
     assert seen_mid_fit["exists"]
     assert (ef.run_dir / "report.html").exists()
-    assert len(ef.samples["log_mdot"]) == 40
+    assert len(ef.samples["log_mdot_msun_yr"]) == 40
 
 
 @pytest.mark.fit
@@ -153,9 +153,9 @@ def test_resume_of_already_complete_run_is_a_no_op(tmp_path):
     data = _make_synthetic()
     ef = _build_echofit(data, title="complete_run", output_dir=str(tmp_path))
     ef.fit(rng_seed=0, num_warmup=15, num_samples=20, checkpoint_every=20, progress_bar=False)
-    assert len(ef.samples["log_mdot"]) == 20
+    assert len(ef.samples["log_mdot_msun_yr"]) == 20
 
     ef2 = EchoFit.resume("complete_run", output_dir=str(tmp_path))
     ef2.fit(progress_bar=False)
-    assert len(ef2.samples["log_mdot"]) == 20
-    np.testing.assert_array_equal(ef.samples["log_mdot"], ef2.samples["log_mdot"])
+    assert len(ef2.samples["log_mdot_msun_yr"]) == 20
+    np.testing.assert_array_equal(ef.samples["log_mdot_msun_yr"], ef2.samples["log_mdot_msun_yr"])

@@ -97,11 +97,11 @@ def generate_report(
     fig_diag.savefig(paths["diagnostics"], dpi=150, bbox_inches="tight")
     figs_to_close = [fig_raw, fig_fits, fig_power, fig_diag]
 
-    # log_mdot/inclination only exist if at least one band used
+    # log_mdot_msun_yr/inclination only exist if at least one band used
     # lag_mode="physical" (CLAUDE.md decision #7) -- skip the corner plot
     # rather than error for a free-lag-only fit.
-    if {"log_mdot", "inclination"} <= set(ef.samples):
-        true_values = {"log_mdot": _truth_value_for("log_mdot", truth), "inclination": _truth_value_for("inclination", truth)}
+    if {"log_mdot_msun_yr", "inclination"} <= set(ef.samples):
+        true_values = {"log_mdot_msun_yr": _truth_value_for("log_mdot_msun_yr", truth), "inclination": _truth_value_for("inclination", truth)}
         true_values = {k: v for k, v in true_values.items() if v is not None} or None
         fig_corner, _ = ef.plot_corner(true_values=true_values)
         paths["corner"] = out_dir / "corner.png"
@@ -133,10 +133,10 @@ def generate_report(
         fig_restarts.savefig(paths["restarts"], dpi=150, bbox_inches="tight")
         figs_to_close.append(fig_restarts)
 
-    # Only after EchoFit.nested_laplace() with log_mdot and inclination gridded,
+    # Only after EchoFit.nested_laplace() with log_mdot_msun_yr and inclination gridded,
     # and no sampler run since.
     nl = getattr(ef, "nested_laplace_result", None)
-    if nl and list(nl["names"])[:2] == ["log_mdot", "cos_inclination"] and not ef.extra_fields:
+    if nl and list(nl["names"])[:2] == ["log_mdot_msun_yr", "cos_inclination"] and not ef.extra_fields:
         fig_land, _ = ef.plot_landscape()
         paths["landscape"] = out_dir / "landscape.png"
         fig_land.savefig(paths["landscape"], dpi=150, bbox_inches="tight")
@@ -285,7 +285,7 @@ def _report_html(ef, paths, data_uris, fit_seconds, n_div, n_total, truth, title
     if "corner" in paths:
         corner_sections.append(f"""
 <h2>Posterior corner plot: disk parameters</h2>
-<p>log_mdot / inclination, coloured per chain. Chains that land in visibly
+<p>log_mdot_msun_yr / inclination, coloured per chain. Chains that land in visibly
 different places here are the same thing a Gelman-Rubin R-hat check would
 flag, made visible -- see CLAUDE.md's note on why a single chain isn't
 sufficient evidence of convergence.</p>
@@ -329,7 +329,7 @@ structure would be worth a closer look.</p>
                 str(r["index"]), f"{r['start_offset_in_sd']:.3g}", str(r["lbfgs_evaluations"]),
                 str(r["newton_iterations"]), f"{2.0 * r['delta_potential']:.3g}",
                 f"{r['max_offset_in_sd']:.3g}", "yes" if r["agrees"] else "<b>no</b>",
-            ] + [f"{v[p]:.4g}" if p in v else "&mdash;" for p in ("log_mdot", "inclination")]
+            ] + [f"{v[p]:.4g}" if p in v else "&mdash;" for p in ("log_mdot_msun_yr", "inclination")]
             rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
         n_agree = sum(r["agrees"] for r in ef.optimise_restarts)
         restarts_section = f"""
@@ -344,7 +344,7 @@ first, on the same scale; "&Delta;BOF" is how far above the best each optimum
 sits in Badness of Fit (2 &times; potential).</p>
 <table><tr><th>restart</th><th>start offset (sd)</th><th>L-BFGS evaluations</th>
 <th>Newton steps</th><th>&Delta;BOF</th><th>max offset from best (sd)</th>
-<th>agrees</th><th>log_mdot</th><th>inclination</th></tr>{"".join(rows)}</table>
+<th>agrees</th><th>log_mdot_msun_yr</th><th>inclination</th></tr>{"".join(rows)}</table>
 <img src="{data_uris['restarts']}" alt="{paths['restarts'].name}">
 """
 
@@ -352,7 +352,7 @@ sits in Badness of Fit (2 &times; potential).</p>
     if "landscape" in paths:
         landscape_section = f"""
 <h2>Badness-of-Fit landscape (nested Laplace)</h2>
-<p>The marginal posterior of log_mdot and inclination from nested_laplace(),
+<p>The marginal posterior of log_mdot_msun_yr and inclination from nested_laplace(),
 shown as &Delta;BOF = &minus;2 &Delta;log posterior: at every grid point the
 other parameters are optimised and integrated. Left, the scout grid over the
 prior range (every basin the search saw); right, the final grid, with

@@ -10,13 +10,13 @@ import pytest
 
 from discotau import EchoFit
 from discotau import disc_sed
-from discotau.forward_model import disk_t1_kelvin, driver_at
+from discotau.forward_model import disk_t1_kelvin, driver_at, typical_log_mdot
 from discotau.synthetic import generate_synthetic_dataset
 
 M_BH = 1e8
 Z = 0.03
 LAMS = {"uv": 2000.0, "u": 3500.0, "g": 4800.0, "i": 7500.0}  # rest frame
-LOG_MDOT, INCL, D_TRUE_MPC = 1.0, 30.0, 140.0
+LOG_MDOT, INCL, D_TRUE_MPC = float(typical_log_mdot(M_BH)) + 1.0, 30.0, 140.0
 
 
 def test_ccm_extinction_at_v_is_rv_times_ebv():
@@ -93,7 +93,7 @@ def _constructed_echofit(ebv_galactic=0.0, ebv_intrinsic=0.0, flux_unit="mJy", f
     host = np.array([0.0, 1.0, 2.0, 3.0])  # mJy, none in the bluest band
     dimming = 10 ** (-0.4 * disc_sed.ccm_a_lambda(lam_obs, ebv_galactic)) / disc_sed.to_mjy(lam_obs, flux_unit, flux_scale)
     share = np.ones(len(names)) if dce_fraction is None else 1.0 - np.asarray(dce_fraction)
-    samples = {"log_mdot": np.full(n_draws, LOG_MDOT), "inclination": np.full(n_draws, INCL),
+    samples = {"log_mdot_msun_yr": np.full(n_draws, LOG_MDOT), "inclination": np.full(n_draws, INCL),
                "S": np.tile(S_f, (n_draws, 1)), "C": np.tile(C_f, (n_draws, 1))}
     shape = disc_sed.response_sed_shape(lam_rest, t1, 0.75, M_BH)
     for k, n in enumerate(names):
@@ -167,13 +167,13 @@ def test_needs_a_redshift_and_a_disc_model():
     ef.redshift = None
     with pytest.raises(ValueError, match="redshift"):
         ef.disc_sed_analysis()
-    del ef.samples["log_mdot"]
+    del ef.samples["log_mdot_msun_yr"]
     with pytest.raises(ValueError, match="disc model"):
         ef.disc_sed_analysis(redshift=Z)
 
 
 def _small_fit(**kwargs):
-    data = generate_synthetic_dataset(M_BH=M_BH, log_mdot_true=0.3, n_obs_per_band=40, t_span=120,
+    data = generate_synthetic_dataset(M_BH=M_BH, log_mdot_msun_yr_true=float(typical_log_mdot(M_BH)) + 0.3, n_obs_per_band=40, t_span=120,
                                       noise_level=0.03, seed=1)
     ef = EchoFit(M_BH=M_BH, redshift=Z, sed_analysis=True, **kwargs)
     for n, d in data["bands"].items():

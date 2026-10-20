@@ -39,6 +39,7 @@ from matplotlib.animation import FuncAnimation, PillowWriter  # noqa: E402
 from matplotlib.collections import LineCollection  # noqa: E402
 from matplotlib.colors import LogNorm  # noqa: E402
 
+from discotau.forward_model import typical_log_mdot  # noqa: E402
 from discotau.grid_utils import graded_tau_grid  # noqa: E402
 from discotau.plotting import blackbody_to_colour  # noqa: E402
 from discotau.rippled_disc import (  # noqa: E402
@@ -51,7 +52,8 @@ from discotau.rippled_disc import (  # noqa: E402
 
 IMAGES = Path(__file__).resolve().parents[1] / "docs" / "images"
 OUT = {"rim": IMAGES / "rippled_disc_animation.gif", "ripples": IMAGES / "rippled_disc_ripples_animation.gif"}
-M_BH, LOG_MDOT, WAVELENGTH = 7e7, 0.0587, 9000.0  # viscous disc at 1500 K at 5 light-days
+M_BH, WAVELENGTH = 7e7, 9000.0
+LOG_MDOT = float(typical_log_mdot(M_BH)) + 0.0587  # log10 Msun/yr: a viscous disc at 1500 K at 5 light-days
 R_VIEW = 5.6  # light-days shown
 FLASH_WIDTH = 0.12  # days: the flash's duration, for the glow
 

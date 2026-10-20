@@ -9,7 +9,7 @@ for, its chains barely move between modes (a single chain jumped once in 300
 draws, split R-hat 2.1), so it cannot weigh them. Nested sampling can.
 
 nautilus samples exp(-U(z)), NumPyro's potential in unconstrained coordinates,
-inside a uniform box: log_mdot over a fixed wide range, the logit of
+inside a uniform box: log_mdot_msun_yr over a fixed wide range, the logit of
 cos(inclination) over +/-8 (inclination from ~0.03 degrees to the 80-degree
 bound), and each remaining parameter over the range of nested_laplace()'s
 proposal draws, widened by its own span plus 2 (in unconstrained units). The
@@ -38,20 +38,20 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import synthetic_recovery_grid as grid  # noqa: E402
 
-LOG_MDOT_BOX = (-4.0, 14.0)
+LOG_MDOT_BOX = (-6.0, 12.0)  # log10 Msun/yr at 1e8 Msun (it was -4 to 14 in the old dimensionless units)
 CHUNK = 256
 
 
-def _summary(log_mdot, inclination, seconds, **extra):
+def _summary(log_mdot_msun_yr, inclination, seconds, **extra):
     q = lambda x: [float(v) for v in np.percentile(x, [2.5, 16, 50, 84, 97.5])]
-    return dict(log_mdot_mean=float(np.mean(log_mdot)), log_mdot_sd=float(np.std(log_mdot)), log_mdot_q=q(log_mdot),
+    return dict(log_mdot_mean=float(np.mean(log_mdot_msun_yr)), log_mdot_sd=float(np.std(log_mdot_msun_yr)), log_mdot_q=q(log_mdot_msun_yr),
                 inclination_mean=float(np.mean(inclination)), inclination_sd=float(np.std(inclination)),
                 inclination_q=q(inclination), seconds=seconds, **extra)
 
 
 def reference(ef, nl_result, seed, n_live):
     """nautilus on the marginalised posterior; returns equal-weight draws of
-    (log_mdot, inclination) and the run's statistics."""
+    (log_mdot_msun_yr, inclination) and the run's statistics."""
     from nautilus import Prior, Sampler
     from numpyro.infer.util import initialize_model
 
@@ -70,7 +70,7 @@ def reference(ef, nl_result, seed, n_live):
     order = sorted(names, key=names.get)
     for name in order:
         i = names[name]
-        if name == "log_mdot":
+        if name == "log_mdot_msun_yr":
             lo, hi = LOG_MDOT_BOX
         elif name == "cos_inclination":
             lo, hi = -8.0, 8.0
@@ -104,7 +104,7 @@ def reference(ef, nl_result, seed, n_live):
 
     from discotau.model import INCLINATION_MAX_DEG
 
-    lm = draws[:, order.index("log_mdot")]
+    lm = draws[:, order.index("log_mdot_msun_yr")]
     cos_t = biject_to(dist.Uniform(np.cos(np.deg2rad(INCLINATION_MAX_DEG)), 1.0).support)
     inc = np.rad2deg(np.arccos(np.asarray(cos_t(jnp.asarray(draws[:, order.index("cos_inclination")])))))
     return lm, inc, dict(seconds=seconds, n_like=int(getattr(sampler, "n_like", -1)), ess=float(1.0 / np.sum(w ** 2)),
@@ -119,7 +119,7 @@ def main():
     parser.add_argument("seed", type=int)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--n-live", type=int, default=2000)
-    parser.add_argument("--nuts", type=Path, help="optional NUTS samples (.npz with log_mdot, inclination) to overlay")
+    parser.add_argument("--nuts", type=Path, help="optional NUTS samples (.npz with log_mdot_msun_yr, inclination) to overlay")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     label = grid.config_label(args.band_set, args.snr, args.cadence, args.seed)
@@ -131,10 +131,10 @@ def main():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         ef.optimise(rng_seed=args.seed, method="laplace")
-    results["optimise"] = _summary(ef.samples["log_mdot"], ef.samples["inclination"], time.perf_counter() - t0,
+    results["optimise"] = _summary(ef.samples["log_mdot_msun_yr"], ef.samples["inclination"], time.perf_counter() - t0,
                                    restarts_agreeing=ef.optimise_timings["restarts_agreeing"],
                                    log_evidence=float(ef.log_evidence))
-    draws = {"optimise": (np.asarray(ef.samples["log_mdot"]), np.asarray(ef.samples["inclination"]))}
+    draws = {"optimise": (np.asarray(ef.samples["log_mdot_msun_yr"]), np.asarray(ef.samples["inclination"]))}
 
     ef = grid.make_echofit(bands, frequency_grid="auto")
     t0 = time.perf_counter()
@@ -142,20 +142,20 @@ def main():
         warnings.simplefilter("ignore")
         ef.nested_laplace(rng_seed=args.seed)
     r = ef.nested_laplace_result
-    results["nested_laplace"] = _summary(ef.samples["log_mdot"], ef.samples["inclination"], time.perf_counter() - t0,
+    results["nested_laplace"] = _summary(ef.samples["log_mdot_msun_yr"], ef.samples["inclination"], time.perf_counter() - t0,
                                          k_hat=r["k_hat"], ess=r["ess"], log_evidence=r["log_evidence_is"],
                                          log_evidence_grid=r["log_evidence_grid"], timings=r["timings"])
-    draws["nested_laplace"] = (np.asarray(ef.samples["log_mdot"]), np.asarray(ef.samples["inclination"]))
+    draws["nested_laplace"] = (np.asarray(ef.samples["log_mdot_msun_yr"]), np.asarray(ef.samples["inclination"]))
 
     lm, inc, stats = reference(ef, r, args.seed, args.n_live)
     results["nautilus"] = _summary(lm, inc, stats.pop("seconds"), **stats)
     draws["nautilus"] = (lm, inc)
     if args.nuts and args.nuts.exists():
         d = np.load(args.nuts)
-        draws["NUTS (one chain, 400-day grid)"] = (d["log_mdot"], d["inclination"])
-        results["nuts_one_chain"] = _summary(d["log_mdot"], d["inclination"], None)
+        draws["NUTS (one chain, 400-day grid)"] = (d["log_mdot_msun_yr"], d["inclination"])
+        results["nuts_one_chain"] = _summary(d["log_mdot_msun_yr"], d["inclination"], None)
 
-    results["truth"] = dict(log_mdot=grid.TRUE_LOG_MDOT, inclination=grid.TRUE_INCLINATION)
+    results["truth"] = dict(log_mdot_msun_yr=grid.TRUE_LOG_MDOT, inclination=grid.TRUE_INCLINATION)
     (args.out / f"{label}.json").write_text(json.dumps(results, indent=1, default=float))
 
     colours = {"nautilus": "0.15", "nested_laplace": "#2a78d6", "optimise": "#eb6834",
@@ -163,7 +163,7 @@ def main():
     styles = {"nautilus": dict(lw=2.5), "nested_laplace": dict(lw=2), "optimise": dict(lw=2, ls="--"),
               "NUTS (one chain, 400-day grid)": dict(lw=1.5, ls=":")}
     fig, axes = plt.subplots(1, 2, figsize=(10, 3.8))
-    for ax, k, truth, xlabel in ((axes[0], 0, grid.TRUE_LOG_MDOT, "log_mdot"),
+    for ax, k, truth, xlabel in ((axes[0], 0, grid.TRUE_LOG_MDOT, "log_mdot_msun_yr"),
                                  (axes[1], 1, grid.TRUE_INCLINATION, "inclination (degrees)")):
         allv = np.concatenate([d[k] for d in draws.values()])
         bins = np.linspace(np.percentile(allv, 0.2), np.percentile(allv, 99.8), 60)
@@ -179,7 +179,7 @@ def main():
     fig.savefig(args.out / f"{label}.png", dpi=150)
     for name in ("optimise", "nested_laplace", "nautilus"):
         s = results[name]
-        print(f"{label} {name}: log_mdot {s['log_mdot_mean']:.2f}+/-{s['log_mdot_sd']:.2f} "
+        print(f"{label} {name}: log_mdot_msun_yr {s['log_mdot_mean']:.2f}+/-{s['log_mdot_sd']:.2f} "
               f"i {s['inclination_mean']:.1f}+/-{s['inclination_sd']:.1f}  {s['seconds']:.0f}s", flush=True)
 
 

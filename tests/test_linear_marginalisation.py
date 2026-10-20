@@ -34,7 +34,7 @@ def _small_echofit(with_driver=True, fit_error_model=False, fixed_params=None, *
 
 
 _NONLINEAR = dict(
-    sigma_drw=jnp.asarray(0.7), log_mdot=jnp.asarray(0.2), cos_inclination=jnp.asarray(0.6),
+    sigma_drw=jnp.asarray(0.7), log_mdot_msun_yr=jnp.asarray(0.2), cos_inclination=jnp.asarray(0.6),
     S_g=jnp.asarray(0.8), S_i=jnp.asarray(1.3), S_driver=jnp.asarray(1.1),
     sigma_scale_g=jnp.asarray(1.2), sigma_jitter_g=jnp.asarray(0.05),
     sigma_scale_i=jnp.asarray(0.9), sigma_jitter_i=jnp.asarray(0.02),
@@ -116,8 +116,8 @@ def test_data_space_marginal_matches_parameter_space_and_brute_force(fit_error_m
         monkeypatch.setattr(model_module, "_FORCE_PARAMETER_SPACE", force)
         jax.clear_caches()
 
-        def loglik(log_mdot, sigma_drw):
-            values = dict(_NONLINEAR, log_mdot=log_mdot, sigma_drw=sigma_drw)
+        def loglik(log_mdot_msun_yr, sigma_drw):
+            values = dict(_NONLINEAR, log_mdot_msun_yr=log_mdot_msun_yr, sigma_drw=sigma_drw)
             tr = handlers.trace(handlers.substitute(handlers.seed(reverberation_model, 0), values)).get_trace(
                 **kwargs, marginalise_linear=True)
             return tr["linear_marginal_loglik"]["fn"].log_prob(tr["linear_marginal_loglik"]["value"])
@@ -132,7 +132,7 @@ def test_marginalised_model_has_no_linear_sample_sites():
     tr = handlers.trace(handlers.seed(reverberation_model, 0)).get_trace(**ef._model_kwargs())
     sampled = {k for k, v in tr.items() if v["type"] == "sample" and not v.get("is_observed", False)}
     assert not sampled & {"S_raw", "C_raw", "C_g", "C_i", "C_driver"}
-    assert {"S_g", "S_i", "S_driver", "log_mdot", "sigma_drw"} <= sampled
+    assert {"S_g", "S_i", "S_driver", "log_mdot_msun_yr", "sigma_drw"} <= sampled
 
 
 @pytest.mark.fit
@@ -161,7 +161,7 @@ def test_marginalised_fit_matches_sampled_fit():
     for key in ("S", "C", "C_g", "C_r", "C_i", "y_pred_g"):
         assert key in marg
     assert marg["S"].shape == sampled["S"].shape
-    for key in ("log_mdot", "S_g", "C_g"):
+    for key in ("log_mdot_msun_yr", "S_g", "C_g"):
         a, b = np.asarray(sampled[key]), np.asarray(marg[key])
         assert abs(a.mean() - b.mean()) < 0.5 * max(a.std(), b.std()) + 1e-3, key
     t = np.linspace(0.0, 100.0, 50)
@@ -268,7 +268,7 @@ def test_optimise_restarts_are_polished_and_compared():
     assert all(r["start_offset_in_sd"] > 0.0 for r in restarts[1:])
     assert ef.optimise_timings["restarts_agreeing"] == sum(r["agrees"] for r in restarts) < 3
     assert all(r["agrees"] for r in restarts if r["delta_potential"] == 0.0)
-    assert {"log_mdot", "inclination"} <= set(restarts[0]["values"])
+    assert {"log_mdot_msun_yr", "inclination"} <= set(restarts[0]["values"])
     assert ef.plot_optimise_restarts() is not None
 
 
@@ -280,7 +280,7 @@ def test_optimise_fills_samples_and_can_seed_nuts(tmp_path):
     ef = _small_echofit()
     ef.optimise(num_samples=50, num_restarts=2, method="laplace")
     assert ef.optimise_timings["newton_offset_in_sd"] < 0.1
-    for key in ("log_mdot", "inclination", "S", "C", "C_g", "C_driver", "y_pred_g"):
+    for key in ("log_mdot_msun_yr", "inclination", "S", "C", "C_g", "C_driver", "y_pred_g"):
         assert ef.samples[key].shape[0] == 50, key
     assert np.all(np.linalg.eigvalsh(ef.laplace_covariance) > 0)
     assert ef.extra_fields == {}
@@ -323,7 +323,7 @@ def test_optimise_laplace_matches_nuts():
             assert ef.optimise_timings["restarts_agreeing"] == 4
         else:
             ef.fit(num_warmup=500, num_samples=500, progress_bar=False)
-        fits.append(np.asarray(ef.samples["log_mdot"]))
+        fits.append(np.asarray(ef.samples["log_mdot_msun_yr"]))
     laplace, nuts = fits
     assert abs(laplace.mean() - nuts.mean()) < 0.5 * nuts.std()
     assert 0.6 < laplace.std() / nuts.std() < 1.6

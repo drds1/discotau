@@ -17,7 +17,7 @@ import numpy as np
 
 from .forward_model import (
     response_function, tophat_response_free, transfer_coeffs, compute_echo, driver_at,
-    legendre_background_basis, mix_diffuse_continuum,
+    legendre_background_basis, mix_diffuse_continuum, typical_log_mdot,
 )
 from .grid_utils import estimate_dt_min, graded_tau_grid
 
@@ -69,7 +69,7 @@ def _sample_uniform_excluding_gaps(
 def generate_synthetic_dataset(
     bands: Optional[Dict[str, float]] = None,
     M_BH: float = 1.0e8,
-    log_mdot_true: float = 0.2,
+    log_mdot_msun_yr_true: Optional[float] = None,
     inclination_true: float = 35.0,
     sigma_drw_true: float = 0.3,
     tau_drw_true: float = 30.0,
@@ -92,8 +92,11 @@ def generate_synthetic_dataset(
     bands : dict, optional
         Mapping ``band_name -> wavelength_angstrom``. Defaults to five SDSS-
         like bands spanning u through z, which guarantees a range of lags.
-    M_BH, log_mdot_true, inclination_true, sigma_drw_true, tau_drw_true :
-        Ground-truth physical parameters used to generate the data.
+    M_BH, log_mdot_msun_yr_true, inclination_true, sigma_drw_true, tau_drw_true :
+        Ground-truth physical parameters used to generate the data: mass in
+        solar masses, log10 accretion rate in solar masses per year (default
+        0.2 dex above :func:`~discotau.forward_model.typical_log_mdot`), degrees
+        and days.
     t_span : float
         Total light-curve baseline, days.
     n_obs_per_band : int
@@ -127,7 +130,7 @@ def generate_synthetic_dataset(
         so the coefficients are directly comparable with fitted ``bg_{band}``.
     response : callable, optional
         The ground-truth response function, with the response-function contract
-        of :mod:`discotau.model` (``(tau_grid, log_mdot, wavelength, inclination,
+        of :mod:`discotau.model` (``(tau_grid, log_mdot_msun_yr, wavelength, inclination,
         M_BH)``, e.g. a ``functools.partial`` of
         :func:`discotau.forward_model.thin_disk_response` or
         :func:`discotau.rippled_disc.rippled_disc_response`). Default: the
@@ -148,6 +151,8 @@ def generate_synthetic_dataset(
     diffuse_continuum = diffuse_continuum or {}
     background = background or {}
     rng = np.random.default_rng(seed)
+    if log_mdot_msun_yr_true is None:
+        log_mdot_msun_yr_true = float(typical_log_mdot(M_BH)) + 0.2
 
     if bands is None:
         bands = {"u": 3543.0, "g": 4770.0, "r": 6231.0, "i": 7625.0, "z": 9134.0}
@@ -190,7 +195,7 @@ def generate_synthetic_dataset(
         psi = np.asarray(
             (response or response_function)(
                 tau_grid,
-                log_mdot=log_mdot_true,
+                log_mdot_msun_yr=log_mdot_msun_yr_true,
                 wavelength=wavelength,
                 inclination=inclination_true,
                 M_BH=M_BH,
@@ -232,7 +237,7 @@ def generate_synthetic_dataset(
 
     truth = {
         "M_BH": M_BH,
-        "log_mdot": log_mdot_true,
+        "log_mdot_msun_yr": log_mdot_msun_yr_true,
         "inclination": inclination_true,
         "sigma_drw": sigma_drw_true,
         "tau_drw": tau_drw_true,
@@ -361,7 +366,7 @@ def with_disc_fluxes(
     on data whose answer is known.
 
     Each band becomes ``host + disc``: the model disc of the dataset's own
-    ``log_mdot``/``inclination`` (``T ~ r^-3/4``, ``T_1`` from
+    ``log_mdot_msun_yr``/``inclination`` (``T ~ r^-3/4``, ``T_1`` from
     :func:`~discotau.forward_model.disk_t1_kelvin`) at the luminosity distance
     that ``h0`` gives at ``redshift``. Its variable part, per standard
     deviation of the driver, is ``variable_fraction`` of the bluest band's mean
@@ -386,7 +391,7 @@ def with_disc_fluxes(
     x_mean, x_sd = float(x.mean()), float(x.std())
     if variable_sed not in ("response", "mean"):
         raise ValueError(f"variable_sed must be 'response' or 'mean', got {variable_sed!r}")
-    t1 = float(disk_t1_kelvin(truth["log_mdot"], truth["M_BH"]))
+    t1 = float(disk_t1_kelvin(truth["log_mdot_msun_yr"], truth["M_BH"]))
     dl_mpc = float(disc_sed.h0_from_dl(1.0, redshift, omega_m) / h0)
     names = sorted(data["bands"], key=lambda n: data["bands"][n]["wavelength"])
     lam = np.array([float(data["bands"][n]["wavelength"]) for n in names])

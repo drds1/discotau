@@ -25,7 +25,7 @@ matplotlib.use("Agg")
 import numpy as np
 import matplotlib.pyplot as plt
 
-from discotau.forward_model import lag_scaling, thin_disk_response, build_thin_disk_response_fast
+from discotau.forward_model import lag_scaling, thin_disk_response, build_thin_disk_response_fast, typical_log_mdot
 
 _np_trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
 
@@ -57,7 +57,7 @@ def plot_inclination_sweep():
     colours = plt.cm.viridis(np.linspace(0.15, 0.9, len(inclinations)))
     for inclination, colour in zip(inclinations, colours):
         psi = thin_disk_response(
-            tau_grid, log_mdot=0.0, wavelength=WAVELENGTH,
+            tau_grid, log_mdot_msun_yr=float(typical_log_mdot(M_BH)), wavelength=WAVELENGTH,
             inclination=inclination, M_BH=M_BH,
         )
         mean_lag = _mean_lag(tau_grid, psi)
@@ -69,7 +69,7 @@ def plot_inclination_sweep():
     ax.set_xlabel("lag, tau (days)")
     ax.set_ylabel("psi(tau)")
     ax.set_title(
-        f"Fixed log_mdot=0 (M_BH={M_BH:.0e} Msun, lambda={WAVELENGTH:.0f} A),\n"
+        f"Fixed Mdot = {10 ** float(typical_log_mdot(M_BH)):.3f} Msun/yr (M_BH={M_BH:.0e} Msun, lambda={WAVELENGTH:.0f} A),\n"
         "varying inclination -- dashed lines are each curve's own mean lag",
         fontsize=11,
     )
@@ -85,19 +85,19 @@ def plot_mdot_sweep():
     M_BH and wavelength), which is exactly what the vertical lines are
     here to make visible."""
     tau_grid = np.linspace(-2.0, 12.0, 6000)
-    log_mdots = [-1.0, -0.5, 0.0, 0.5, 1.0]
+    log_mdots = [float(typical_log_mdot(M_BH)) + x for x in (-1.0, -0.5, 0.0, 0.5, 1.0)]
 
     fig, ax = plt.subplots(figsize=(8, 5.5))
     colours = plt.cm.plasma(np.linspace(0.15, 0.85, len(log_mdots)))
-    for log_mdot, colour in zip(log_mdots, colours):
+    for log_mdot_msun_yr, colour in zip(log_mdots, colours):
         psi = thin_disk_response(
-            tau_grid, log_mdot=log_mdot, wavelength=WAVELENGTH,
+            tau_grid, log_mdot_msun_yr=log_mdot_msun_yr, wavelength=WAVELENGTH,
             inclination=0.0, M_BH=M_BH,
         )
         mean_lag = _mean_lag(tau_grid, psi)
-        print(f"log_mdot {log_mdot:+.1f}: mean lag {mean_lag:.3f} d, lag_scaling {float(lag_scaling(log_mdot, WAVELENGTH, M_BH)):.3f} d")
-        mdot = 10.0 ** log_mdot
-        ax.plot(tau_grid, psi, color=colour, label=f"mdot={mdot:.2f} (log_mdot={log_mdot:+.1f})")
+        print(f"log_mdot_msun_yr {log_mdot_msun_yr:+.1f}: mean lag {mean_lag:.3f} d, lag_scaling {float(lag_scaling(log_mdot_msun_yr, WAVELENGTH, M_BH)):.3f} d")
+        mdot = 10.0 ** log_mdot_msun_yr
+        ax.plot(tau_grid, psi, color=colour, label=f"Mdot = {mdot:.4f} Msun/yr")
         ax.axvline(mean_lag, color=colour, linestyle="--", linewidth=1, alpha=0.8)
 
     ax.set_xlabel("lag, tau (days)")
@@ -123,23 +123,23 @@ def plot_fast_vs_slow():
     fast = build_thin_disk_response_fast(M_BH)
     tau_grid = np.linspace(-2.0, 15.0, 600)
     cases = [
-        {"log_mdot": 0.0, "wavelength": WAVELENGTH, "inclination": 30.0,
+        {"log_mdot_msun_yr": float(typical_log_mdot(M_BH)), "wavelength": WAVELENGTH, "inclination": 30.0,
          "label": "near the table's reference point", "zoom": None},
-        {"log_mdot": -0.5, "wavelength": 7000.0, "inclination": 85.0,
+        {"log_mdot_msun_yr": float(typical_log_mdot(M_BH)) - 0.5, "wavelength": 7000.0, "inclination": 85.0,
          "label": "far from it: high inclination, different wavelength", "zoom": (-0.1, 0.6)},
     ]
 
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
     for ax, case in zip(axes, cases):
         psi_slow = np.asarray(thin_disk_response(
-            tau_grid, log_mdot=case["log_mdot"], wavelength=case["wavelength"],
+            tau_grid, log_mdot_msun_yr=case["log_mdot_msun_yr"], wavelength=case["wavelength"],
             inclination=case["inclination"], M_BH=M_BH,
         ))
-        psi_fast = np.asarray(fast(tau_grid, case["log_mdot"], case["wavelength"], case["inclination"], M_BH))
+        psi_fast = np.asarray(fast(tau_grid, case["log_mdot_msun_yr"], case["wavelength"], case["inclination"], M_BH))
         ax.plot(tau_grid, psi_slow, label="exact (thin_disk_response)")
         ax.plot(tau_grid, psi_fast, "--", label="fast (templated + stretched)")
         title = (
-            f"log_mdot={case['log_mdot']}, wavelength={case['wavelength']:.0f} A, "
+            f"log_mdot_msun_yr={case['log_mdot_msun_yr']}, wavelength={case['wavelength']:.0f} A, "
             f"inclination={case['inclination']:.0f} deg\n{case['label']}"
         )
         if case["zoom"] is not None:

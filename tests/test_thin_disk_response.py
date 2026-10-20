@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from discotau.forward_model import thin_disk_response, disk_temperature_profile, lag_scaling, _schwarzschild_radius_light_days, _WIEN_B_ANGSTROM_KELVIN
+from discotau.forward_model import thin_disk_response, disk_temperature_profile, lag_scaling, _schwarzschild_radius_light_days, _WIEN_B_ANGSTROM_KELVIN, typical_log_mdot
 from discotau.responses import available_responses, get_response, register_response
 
 _np_trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
@@ -19,7 +19,7 @@ _np_trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
 def test_thin_disk_response_is_causal_and_normalised():
     tau_grid = jnp.linspace(-5.0, 80.0, 300)
     psi = thin_disk_response(
-        tau_grid, log_mdot=0.0, wavelength=5000.0, inclination=30.0, M_BH=1e8
+        tau_grid, log_mdot_msun_yr=typical_log_mdot(1e8), wavelength=5000.0, inclination=30.0, M_BH=1e8
     )
     psi_np = np.asarray(psi)
     tau_np = np.asarray(tau_grid)
@@ -41,7 +41,7 @@ def test_thin_disk_response_median_lag_scales_with_wavelength():
 
     def median_lag(wavelength):
         psi = np.asarray(thin_disk_response(
-            tau_grid, log_mdot=0.0, wavelength=wavelength, inclination=20.0, M_BH=1e8
+            tau_grid, log_mdot_msun_yr=typical_log_mdot(1e8), wavelength=wavelength, inclination=20.0, M_BH=1e8
         ))
         cdf = np.cumsum(psi) / np.sum(psi)
         return float(tau_np[np.searchsorted(cdf, 0.5)])
@@ -52,17 +52,17 @@ def test_thin_disk_response_median_lag_scales_with_wavelength():
 def test_thin_disk_response_has_nonzero_gradients():
     """The same failure mode as tophat_response_free's hard edges: a
     zero-gradient response would look fine (finite, normalised) but leave
-    NUTS unable to move log_mdot/inclination at all."""
+    NUTS unable to move log_mdot_msun_yr/inclination at all."""
     tau_grid = jnp.linspace(0.0, 80.0, 200)
 
-    def mean_lag(log_mdot, inclination):
+    def mean_lag(log_mdot_msun_yr, inclination):
         psi = thin_disk_response(
-            tau_grid, log_mdot, wavelength=5000.0, inclination=inclination, M_BH=1e8
+            tau_grid, log_mdot_msun_yr, wavelength=5000.0, inclination=inclination, M_BH=1e8
         )
         return jnp.sum(psi * tau_grid)
 
-    grad_mdot = jax.grad(mean_lag, argnums=0)(0.0, 30.0)
-    grad_incl = jax.grad(mean_lag, argnums=1)(0.0, 30.0)
+    grad_mdot = jax.grad(mean_lag, argnums=0)(typical_log_mdot(1e8), 30.0)
+    grad_incl = jax.grad(mean_lag, argnums=1)(typical_log_mdot(1e8), 30.0)
     assert float(grad_mdot) != 0.0
     assert float(grad_incl) != 0.0
 
@@ -75,10 +75,10 @@ def test_thin_disk_response_inclination_increases_skew_not_just_shifts_mean():
     tau_np = np.asarray(tau_grid)
 
     psi_face_on = np.asarray(
-        thin_disk_response(tau_grid, log_mdot=0.0, wavelength=5000.0, inclination=1.0, M_BH=1e8)
+        thin_disk_response(tau_grid, log_mdot_msun_yr=typical_log_mdot(1e8), wavelength=5000.0, inclination=1.0, M_BH=1e8)
     )
     psi_inclined = np.asarray(
-        thin_disk_response(tau_grid, log_mdot=0.0, wavelength=5000.0, inclination=70.0, M_BH=1e8)
+        thin_disk_response(tau_grid, log_mdot_msun_yr=typical_log_mdot(1e8), wavelength=5000.0, inclination=70.0, M_BH=1e8)
     )
 
     def skewness(psi):
@@ -120,7 +120,7 @@ def test_thin_disk_response_smoothing_days_zero_gives_exact_mean_lag_independenc
     lags = []
     for inclination in [0.0, 40.0, 80.0]:
         psi = np.asarray(thin_disk_response(
-            tau_grid, log_mdot=0.0, wavelength=4000.0, inclination=inclination,
+            tau_grid, log_mdot_msun_yr=typical_log_mdot(1e8), wavelength=4000.0, inclination=inclination,
             M_BH=1e8, smoothing_days=0.0,
         ))
         lags.append(_np_trapz(psi * tau_np, tau_np) - hx * np.cos(np.deg2rad(inclination)))
@@ -146,7 +146,7 @@ def test_thin_disk_response_default_smoothing_mean_lag_drift_is_bounded():
     lags = []
     for inclination in [0.0, 40.0, 80.0]:
         psi = np.asarray(thin_disk_response(
-            tau_grid, log_mdot=0.0, wavelength=4000.0, inclination=inclination, M_BH=1e8,
+            tau_grid, log_mdot_msun_yr=typical_log_mdot(1e8), wavelength=4000.0, inclination=inclination, M_BH=1e8,
         ))
         lags.append(_np_trapz(psi * tau_np, tau_np) - hx * np.cos(np.deg2rad(inclination)))
 
@@ -169,8 +169,8 @@ def test_registry_raises_with_helpful_message_for_unknown_name():
 
 
 def test_registry_supports_custom_registration():
-    def my_response(tau_grid, log_mdot, wavelength, inclination, M_BH, **kwargs):
-        return thin_disk_response(tau_grid, log_mdot, wavelength, inclination, M_BH)
+    def my_response(tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH, **kwargs):
+        return thin_disk_response(tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH)
 
     register_response("my_response", my_response)
     try:
@@ -184,7 +184,7 @@ def test_registry_supports_custom_registration():
 
 @pytest.mark.fit
 def test_thin_disk_response_is_usable_via_the_existing_swap_mechanism():
-    """thin_disk_response matches the same (tau_grid, log_mdot, wavelength,
+    """thin_disk_response matches the same (tau_grid, log_mdot_msun_yr, wavelength,
     inclination, M_BH) contract as response_function, so it plugs into the
     existing discotau.model.response_function swap point (CLAUDE.md decision
     #5) with no further wiring -- exactly the point of the registry."""
@@ -214,11 +214,11 @@ def test_disk_temperature_profile_matches_wien_law_at_the_reference_radius():
     exactly at lag_scaling's tau_ref(lambda), at every wavelength (so T_1 is
     wavelength-independent); the full profile adds the ISCO factor
     (1 - sqrt(r_in/r))**(1/4) on top."""
-    M_BH, log_mdot = 1e8, 0.0
+    M_BH, log_mdot_msun_yr = 1e8, typical_log_mdot(1e8)
     r_in = 3.0 * _schwarzschild_radius_light_days(M_BH)
     for wavelength in (1500.0, 5000.0, 9000.0):
-        tau_ref = lag_scaling(log_mdot, wavelength, M_BH)
-        T = float(disk_temperature_profile(tau_ref, log_mdot, wavelength, M_BH))
+        tau_ref = lag_scaling(log_mdot_msun_yr, wavelength, M_BH)
+        T = float(disk_temperature_profile(tau_ref, log_mdot_msun_yr, wavelength, M_BH))
         inner = (1.0 - np.sqrt(r_in / tau_ref)) ** 0.25
         assert T == pytest.approx(_WIEN_B_ANGSTROM_KELVIN / wavelength * inner, rel=1e-5)
 
@@ -229,8 +229,8 @@ def test_disk_temperature_profile_does_not_depend_on_wavelength_for_any_slope():
     September 2026 it did, for any slope other than 0.75)."""
     r = jnp.array([0.3, 1.0, 5.0])
     for slope in (0.75, 1.0):
-        a = np.asarray(disk_temperature_profile(r, 0.5, 1500.0, 1e8, viscous_slope=slope))
-        b = np.asarray(disk_temperature_profile(r, 0.5, 9000.0, 1e8, viscous_slope=slope))
+        a = np.asarray(disk_temperature_profile(r, typical_log_mdot(1e8) + 0.5, 1500.0, 1e8, viscous_slope=slope))
+        b = np.asarray(disk_temperature_profile(r, typical_log_mdot(1e8) + 0.5, 9000.0, 1e8, viscous_slope=slope))
         assert np.allclose(a, b, rtol=1e-6)
 
 
@@ -246,10 +246,10 @@ def test_thin_disk_mean_lag_obeys_the_standard_lag_temperature_relation():
     hx = 3.0 * _schwarzschild_radius_light_days(10 ** 7.5)
     tau = jnp.linspace(0.0, 40.0, 8000)
     tau_np = np.asarray(tau)
-    t1 = float(disk_t1_kelvin(1.0, 10 ** 7.5))
+    t1 = float(disk_t1_kelvin(typical_log_mdot(10 ** 7.5) + 1.0, 10 ** 7.5))
     for wavelength in (1367.0, 9157.0):
         for inclination in (0.0, 45.0):
-            psi = np.asarray(thin_disk_response(tau, 1.0, wavelength, inclination, 10 ** 7.5, smoothing_days=0.0))
+            psi = np.asarray(thin_disk_response(tau, typical_log_mdot(10 ** 7.5) + 1.0, wavelength, inclination, 10 ** 7.5, smoothing_days=0.0))
             mean = _np_trapz(psi * tau_np, tau_np) / _np_trapz(psi, tau_np) - hx * np.cos(np.deg2rad(inclination))
             x_eff = 1.4387773538e8 / (wavelength * t1) * mean ** 0.75
             assert 3.0 < x_eff < 3.4, (wavelength, inclination, x_eff)
@@ -262,10 +262,10 @@ def test_disk_temperature_profile_vanishes_at_the_isco():
     the ISCO, rather than an absolute Kelvin value, since the floor itself
     scales with the Wien-law reference temperature (M_BH/wavelength
     dependent)."""
-    M_BH, wavelength, log_mdot = 1e8, 5000.0, 0.0
+    M_BH, wavelength, log_mdot_msun_yr = 1e8, 5000.0, typical_log_mdot(1e8)
     r_in = 3.0 * _schwarzschild_radius_light_days(M_BH)
-    T_at_isco = float(disk_temperature_profile(r_in, log_mdot, wavelength, M_BH))
-    T_away = float(disk_temperature_profile(10.0 * r_in, log_mdot, wavelength, M_BH))
+    T_at_isco = float(disk_temperature_profile(r_in, log_mdot_msun_yr, wavelength, M_BH))
+    T_away = float(disk_temperature_profile(10.0 * r_in, log_mdot_msun_yr, wavelength, M_BH))
     assert T_at_isco < 1e-2 * T_away
 
 
@@ -273,10 +273,10 @@ def test_disk_temperature_profile_declines_far_from_the_isco():
     """Away from the inner-boundary region (where the profile genuinely
     peaks just outside the ISCO before declining -- not monotonic from
     r_in itself), temperature should fall off smoothly with radius."""
-    M_BH, wavelength, log_mdot = 1e8, 5000.0, 0.0
+    M_BH, wavelength, log_mdot_msun_yr = 1e8, 5000.0, typical_log_mdot(1e8)
     r_in = 3.0 * _schwarzschild_radius_light_days(M_BH)
     r = np.geomspace(50.0 * r_in, 50.0, 20)  # well clear of the near-ISCO peak
-    T = np.asarray(disk_temperature_profile(r, log_mdot, wavelength, M_BH))
+    T = np.asarray(disk_temperature_profile(r, log_mdot_msun_yr, wavelength, M_BH))
     assert np.all(np.diff(T) < 0.0)
 
 
@@ -289,7 +289,7 @@ def test_thin_disk_response_starts_at_zero_and_smoothing_is_causal():
     tau_grid = jnp.linspace(-2.0, 20.0, 4001)
     tau_np = np.asarray(tau_grid)
     for inclination in (0.0, 45.0, 80.0):
-        psi = np.asarray(thin_disk_response(tau_grid, 3.0, 5000.0, inclination, 10 ** 7.5))
+        psi = np.asarray(thin_disk_response(tau_grid, typical_log_mdot(10 ** 7.5) + 3.0, 5000.0, inclination, 10 ** 7.5))
         assert np.all(psi[tau_np <= 0.0] == 0.0)
         assert abs(_np_trapz(psi, tau_np) - 1.0) < 1e-3
         assert psi[tau_np > 0.0][0] < 1e-3 * psi.max()
@@ -311,7 +311,7 @@ def test_thin_disk_response_no_light_before_the_lamppost_delay(include_irradiati
     earliest = np.sqrt(r_edge ** 2 + hx ** 2) + hx
     tau_grid = jnp.linspace(0.0, 2.0, 20001)
     tau_np = np.asarray(tau_grid)
-    psi = np.asarray(thin_disk_response(tau_grid, 3.0, 5000.0, 0.0, M, smoothing_log=0.0,
+    psi = np.asarray(thin_disk_response(tau_grid, typical_log_mdot(M) + 3.0, 5000.0, 0.0, M, smoothing_log=0.0,
                                         include_irradiation=include_irradiation))
     # The inner-edge sigmoid is 0.05 r_in wide, so allow a sliver below the edge.
     assert np.all(psi[tau_np < 0.9 * earliest] < 1e-6 * psi.max())
@@ -323,8 +323,8 @@ def test_log_smoothing_keeps_the_mean_delay():
     exp(sigma**2 / 2) - 1 ~ 0.1 per cent (plus quadrature error)."""
     tau_grid = jnp.linspace(0.0, 60.0, 12001)
     tau_np = np.asarray(tau_grid)
-    exact = np.asarray(thin_disk_response(tau_grid, 3.0, 5000.0, 30.0, 10 ** 7.5, smoothing_log=0.0))
-    smooth = np.asarray(thin_disk_response(tau_grid, 3.0, 5000.0, 30.0, 10 ** 7.5))
+    exact = np.asarray(thin_disk_response(tau_grid, typical_log_mdot(10 ** 7.5) + 3.0, 5000.0, 30.0, 10 ** 7.5, smoothing_log=0.0))
+    smooth = np.asarray(thin_disk_response(tau_grid, typical_log_mdot(10 ** 7.5) + 3.0, 5000.0, 30.0, 10 ** 7.5))
     mean = lambda psi: _np_trapz(psi * tau_np, tau_np) / _np_trapz(psi, tau_np)  # noqa: E731
     assert abs(mean(smooth) / mean(exact) - 1.0) < 0.01
 
@@ -343,18 +343,18 @@ def test_default_response_has_no_inner_edge_spike(wavelength):
     edge = np.sqrt(r_pk ** 2 + hx ** 2) + hx
     tau_grid = jnp.linspace(0.0, 10.0, 4001)
     tau_np = np.asarray(tau_grid)
-    peak = tau_np[np.argmax(np.asarray(thin_disk_response(tau_grid, 2.44, wavelength, 0.0, M)))]
+    peak = tau_np[np.argmax(np.asarray(thin_disk_response(tau_grid, typical_log_mdot(M) + 2.44, wavelength, 0.0, M)))]
     peak_viscous = tau_np[np.argmax(np.asarray(
-        thin_disk_response(tau_grid, 2.44, wavelength, 0.0, M, include_irradiation=False)))]
+        thin_disk_response(tau_grid, typical_log_mdot(M) + 2.44, wavelength, 0.0, M, include_irradiation=False)))]
     assert peak_viscous < 1.3 * edge
     assert peak > 2.0 * edge
 
 
-@pytest.mark.parametrize("log_mdot, slope", [(22.84, 2.3), (22.84, 0.7), (25.0, 0.5), (40.0, 0.75), (-25.0, 0.5)])
-def test_thin_disk_response_is_finite_far_out_in_the_prior(log_mdot, slope):
-    # The nested solve's grids reach log_mdot ~ 23 and beyond (prior sd 5). There
+@pytest.mark.parametrize("log_mdot_above_typical, slope", [(22.84, 2.3), (22.84, 0.7), (25.0, 0.5), (40.0, 0.75), (-25.0, 0.5)])
+def test_thin_disk_response_is_finite_far_out_in_the_prior(log_mdot_above_typical, slope):
+    # The nested solve's grids reach log_mdot_msun_yr ~ 23 and beyond (prior sd 5). There
     # the disc is far hotter than the band: 1 - e**-X rounded to zero in float32
-    # (a 0/0 Planck weight), r_wien**3 and 10**log_mdot overflowed, and the
+    # (a 0/0 Planck weight), r_wien**3 and 10**log_mdot_msun_yr overflowed, and the
     # potential or its gradient came out NaN, stopping three temperature-slope
     # fits with "Eigenvalues did not converge".
     tau_grid = jnp.concatenate([jnp.zeros(1), jnp.geomspace(0.01, 30.0, 199)])
@@ -363,7 +363,7 @@ def test_thin_disk_response_is_finite_far_out_in_the_prior(log_mdot, slope):
         psi = thin_disk_response(tau_grid, p[0], 7625.0, p[1], 1e8, viscous_slope=p[2])
         return jnp.sum(psi ** 2), psi
 
-    (value, psi), grad = jax.value_and_grad(loss, has_aux=True)(jnp.array([log_mdot, 68.0, slope]))
+    (value, psi), grad = jax.value_and_grad(loss, has_aux=True)(jnp.array([float(typical_log_mdot(1e8)) + log_mdot_above_typical, 68.0, slope]))
     assert np.isfinite(float(value)) and np.all(np.isfinite(np.asarray(grad)))
     assert np.all(np.asarray(psi) >= 0.0)
-    assert np.isfinite(float(lag_scaling(40.0, 5000.0, 1e8)))
+    assert np.isfinite(float(lag_scaling(typical_log_mdot(1e8) + 40.0, 5000.0, 1e8)))

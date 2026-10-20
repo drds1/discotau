@@ -11,6 +11,7 @@ from numpyro.infer.util import initialize_model
 
 from discotau.echofit import EchoFit
 from discotau.forward_model import (
+    typical_log_mdot,
     compute_echo, driver_at, fourier_basis, response_function, transfer_coeffs, transfer_matrices,
 )
 from discotau.grid_utils import graded_tau_grid
@@ -20,7 +21,7 @@ from discotau.model import reverberation_model
 def test_transfer_matrices_match_on_the_fly_transfer_coeffs():
     tau_grid = jnp.asarray(graded_tau_grid(60.0, 300, power=3.0), dtype=jnp.float32)
     freqs = jnp.asarray(np.geomspace(0.01, 5.0, 40), dtype=jnp.float32)
-    psi = response_function(tau_grid, 0.3, 5000.0, 50.0, 1.0e8)
+    psi = response_function(tau_grid, typical_log_mdot(1e8) + 0.3, 5000.0, 50.0, 1.0e8)
 
     A0, B0 = transfer_coeffs(tau_grid, psi, freqs)
     A1, B1 = transfer_coeffs(tau_grid, psi, freqs, matrices=transfer_matrices(tau_grid, freqs))

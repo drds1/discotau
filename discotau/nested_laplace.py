@@ -8,7 +8,7 @@ smoothed importance-sampling correction (Vehtari et al. 2024; Berild et al.
 2022's IS-INLA). Used by :meth:`discotau.EchoFit.nested_laplace`.
 
 Why: ``EchoFit.optimise()`` fits one Gaussian at one peak. On weakly
-constraining data (e.g. g and i at SNR 100) the posterior of ``log_mdot`` and
+constraining data (e.g. g and i at SNR 100) the posterior of ``log_mdot_msun_yr`` and
 inclination is a long, curved ridge or two separate modes, and a single
 Gaussian understates the uncertainty several-fold, or sits on one mode
 (``scripts/synthetic_recovery_grid.py``). The difficulty is confined to those
@@ -18,7 +18,7 @@ and the offsets are integrated out exactly (``model._linear_marginal``).
 
 How:
 
-1. The outer parameters (default ``log_mdot``, ``cos_inclination`` and, when
+1. The outer parameters (default ``log_mdot_msun_yr``, ``cos_inclination`` and, when
    fitted, ``temperature_slope``) are gridded in their *constrained*
    coordinates. At each grid point the inner parameters are optimised (damped
    Newton, warm-started from a solved neighbour), and the Laplace approximation
@@ -26,7 +26,7 @@ How:
    ``log p(theta | y) = -U* - log|d theta / d z| + d/2 log 2 pi - 1/2 log det H``,
    with ``U`` NumPyro's potential in unconstrained coordinates ``z``.
 2. Mode finding: a scout grid over the prior range (bounded parameters over
-   their whole support, unbounded ones such as ``log_mdot`` over +/-3.3 prior
+   their whole support, unbounded ones such as ``log_mdot_msun_yr`` over +/-3.3 prior
    sd) locates candidate regions, and a full optimisation from each of its
    local maxima, and from the data-anchored start, climbs to every mode's peak,
    however narrow. A coarse grid's values alone are not enough: at SNR 1000 a
@@ -69,13 +69,13 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-DEFAULT_GRID_PARAMS = ("log_mdot", "cos_inclination", "temperature_slope")
+DEFAULT_GRID_PARAMS = ("log_mdot_msun_yr", "cos_inclination", "temperature_slope")
 # Modes are kept (and scout maxima tried) more generously than the final grid
 # is sized: a mode within MODE_DROP of the best in Laplace log evidence is kept.
 # The final box only needs the region within ``drop`` (default 8) of the peak,
 # which leaves out ~0.03 per cent of a Gaussian's mass; a looser cut let a
 # broad plateau at ~e^-10 relative density (responses running far beyond the
-# lag grid at log_mdot ~10-15) stretch the grid to ~1 dex per row.
+# lag grid 10-15 dex above typical_log_mdot) stretch the grid to ~1 dex per row.
 MODE_DROP = 12.0
 
 

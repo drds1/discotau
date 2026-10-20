@@ -186,7 +186,7 @@ def test_dense_mass_persists_across_resume(tmp_path):
     ef2 = EchoFit.resume("dense_mass_resume_test", output_dir=str(tmp_path))
     assert ef2._fit_config["dense_mass"] is True
     ef2.fit(progress_bar=False)
-    assert len(ef2.samples["log_mdot"]) == 10
+    assert len(ef2.samples["log_mdot_msun_yr"]) == 10
 
 
 @pytest.mark.fit

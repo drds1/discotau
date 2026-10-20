@@ -48,7 +48,7 @@ def main():
 
     truth = data["truth"]
     print(
-        f"\nGround truth: M_BH={truth['M_BH']:.3g}, log_mdot={truth['log_mdot']:.3g}, "
+        f"\nGround truth: M_BH={truth['M_BH']:.3g}, log_mdot_msun_yr={truth['log_mdot_msun_yr']:.3g}, "
         f"inclination={truth['inclination']:.3g} deg"
     )
 

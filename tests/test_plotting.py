@@ -49,14 +49,14 @@ def test_band_colours_are_ordered_by_wavelength_and_use_wavelength_to_colour():
 def test_plot_corner_shows_true_value_crosshair_and_raises_on_unknown_param():
     rng = np.random.default_rng(0)
     samples = {
-        "log_mdot": rng.normal(0.0, 0.1, size=(2, 100)),
+        "log_mdot_msun_yr": rng.normal(0.0, 0.1, size=(2, 100)),
         "inclination": rng.normal(30.0, 3.0, size=(2, 100)),
     }
-    fig, axes = plotting.plot_corner(samples, true_values={"log_mdot": 0.0, "inclination": 30.0})
+    fig, axes = plotting.plot_corner(samples, true_values={"log_mdot_msun_yr": 0.0, "inclination": 30.0})
     assert axes.shape == (2, 2)
 
     with pytest.raises(KeyError, match="not_a_param"):
-        plotting.plot_corner(samples, param_names=("log_mdot", "not_a_param"))
+        plotting.plot_corner(samples, param_names=("log_mdot_msun_yr", "not_a_param"))
 
 
 def test_plot_corner_generalises_beyond_two_parameters():
@@ -227,7 +227,7 @@ def _two_basin_landscape():
     scout = (np.linspace(-10.0, 15.0, 26), np.linspace(0.17, 1.0, 12))
     fine = (np.linspace(1.0, 5.5, 20), np.linspace(0.17, 1.0, 15))
     grid = lambda axes: logp(*np.meshgrid(*axes, indexing="ij"))  # noqa: E731
-    return dict(names=["log_mdot", "cos_inclination"], passes=[dict(axes=scout, logp=grid(scout))],
+    return dict(names=["log_mdot_msun_yr", "cos_inclination"], passes=[dict(axes=scout, logp=grid(scout))],
                 fine_axes=fine, fine_logp=grid(fine))
 
 
@@ -236,36 +236,36 @@ def test_plot_landscape_3d_draws_both_grids_as_surfaces():
 
     result = _two_basin_landscape()
     for height in ("log", "density"):
-        fig, axes = plot_landscape_3d(result, height=height, truth={"log_mdot": 2.0, "inclination": 25.8})
+        fig, axes = plot_landscape_3d(result, height=height, truth={"log_mdot_msun_yr": 2.0, "inclination": 25.8})
         assert len(axes) == 2 and all(ax.name == "3d" for ax in axes)
         assert all(ax.collections for ax in axes)  # the surfaces and floor contours
         plt.close(fig)
     with pytest.raises(ValueError, match="height"):
         plot_landscape_3d(result, height="silly")
     # Any gridded pair works, labelled by its own names.
-    fig, axes = plot_landscape_3d(dict(result, names=["log_mdot", "temperature_slope"]))
-    assert axes[1].get_xlabel() == "temperature_slope" and axes[1].get_ylabel() == "log_mdot"
+    fig, axes = plot_landscape_3d(dict(result, names=["log_mdot_msun_yr", "temperature_slope"]))
+    assert axes[1].get_xlabel() == "temperature_slope" and axes[1].get_ylabel() == "log_mdot_msun_yr"
     plt.close(fig)
     with pytest.raises(ValueError, match="two gridded"):
-        plot_landscape_3d(dict(result, names=["log_mdot"]))
+        plot_landscape_3d(dict(result, names=["log_mdot_msun_yr"]))
 
 
 def test_plot_sample_landscape_3d_works_for_any_pair():
     from discotau.plotting import plot_sample_landscape_3d
 
     rng = np.random.default_rng(0)
-    samples = {"log_mdot": rng.normal(2.0, 0.1, 4000), "inclination": rng.uniform(10, 60, 4000),
+    samples = {"log_mdot_msun_yr": rng.normal(2.0, 0.1, 4000), "inclination": rng.uniform(10, 60, 4000),
                "dce_fraction_V": rng.beta(6, 4, 4000), "M_fixed": np.full(4000, 3.0)}
-    fig, ax = plot_sample_landscape_3d(samples, "cos_inclination", "log_mdot", truth={"log_mdot": 2.0, "inclination": 30})
+    fig, ax = plot_sample_landscape_3d(samples, "cos_inclination", "log_mdot_msun_yr", truth={"log_mdot_msun_yr": 2.0, "inclination": 30})
     assert ax.name == "3d" and ax.get_xlabel() == "cos(inclination)"
     plt.close(fig)
-    fig, ax = plot_sample_landscape_3d(samples, "dce_fraction_V", "log_mdot", height="density")
+    fig, ax = plot_sample_landscape_3d(samples, "dce_fraction_V", "log_mdot_msun_yr", height="density")
     assert ax.get_xlabel() == "dce_fraction_V"
     plt.close(fig)
     with pytest.raises(ValueError, match="fixed"):
-        plot_sample_landscape_3d(samples, "M_fixed", "log_mdot")
+        plot_sample_landscape_3d(samples, "M_fixed", "log_mdot_msun_yr")
     with pytest.raises(KeyError):
-        plot_sample_landscape_3d(samples, "nope", "log_mdot")
+        plot_sample_landscape_3d(samples, "nope", "log_mdot_msun_yr")
 
 
 def test_lightcurve_fits_split_a_second_reprocessors_response():

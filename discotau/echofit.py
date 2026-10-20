@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import time
 import warnings
+from functools import partial
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -31,7 +32,7 @@ from .model import reverberation_model
 from .inference import run_mcmc, run_mcmc_chunked
 from .forward_model import (
     transfer_coeffs, compute_echo, driver_at, tophat_response_free, transfer_matrices, fourier_basis,
-    legendre_background_basis, mix_diffuse_continuum, lognormal_response,
+    legendre_background_basis, mix_diffuse_continuum, lognormal_response, typical_log_mdot,
 )
 from .grid_utils import estimate_dt_min, graded_tau_grid, check_tau_grid_resolution, hybrid_frequency_grid
 from .nested_laplace import fd_hessian as _fd_hessian, lbfgs_sd as _lbfgs_sd
@@ -130,7 +131,7 @@ def _merge_dicts(dicts) -> dict:
     return {k: np.concatenate([d[k] for d in dicts], axis=0) for k in dicts[0]}
 
 
-def _initialize_marginal_model(rng_seed, kwargs, init_strategy):
+def _initialize_marginal_model(rng_seed, kwargs, init_strategy, M_BH=None):
     """NumPyro's ``initialize_model`` for the marginal model, without its
     eager gradient check (``validate_grad=False``): run eagerly, that gradient
     compiled ~280 small one-off operations (~20 s on a 5-parameter problem).
@@ -138,9 +139,34 @@ def _initialize_marginal_model(rng_seed, kwargs, init_strategy):
     handle a non-finite one."""
     from numpyro.infer.util import initialize_model
 
-    return initialize_model(jax.random.PRNGKey(rng_seed), reverberation_model, model_kwargs=kwargs,
+    info = initialize_model(jax.random.PRNGKey(rng_seed), reverberation_model, model_kwargs=kwargs,
                             init_strategy=init_strategy, validate_grad=False)
+    z = info.param_info.z
+    if M_BH is not None and "log_mdot_msun_yr" in z:
+        # NumPyro starts it uniformly in (-2, 2), which was centred on a typical
+        # accretion rate when the parameter was dimensionless. Shifting by
+        # typical_log_mdot keeps the solvers' starts as they were. Only z is read
+        # from the result, so its cached potential and gradient need no update.
+        z = dict(z, log_mdot_msun_yr=z["log_mdot_msun_yr"] + float(typical_log_mdot(M_BH)))
+        info = info._replace(param_info=info.param_info._replace(z=z))
+    return info
 
+
+
+
+def _shifted_mdot_init(site=None, strategy=None, shift=0.0):
+    """NUTS's start strategy with the accretion rate moved by ``shift``
+    (``typical_log_mdot(M_BH)``). NumPyro's default start is uniform in (-2, 2),
+    which was centred on a typical accretion rate when the parameter was
+    dimensionless; in solar masses per year that range would sit ~2 dex too high
+    for a 1e8 Msun black hole. The direct solves shift their start the same way
+    in ``_initialize_marginal_model``."""
+    if site is None:
+        return partial(_shifted_mdot_init, strategy=strategy, shift=shift)
+    value = strategy(site)
+    if site["type"] == "sample" and site["name"] == "log_mdot_msun_yr" and not site["is_observed"]:
+        value = value + shift
+    return value
 
 class _LinearDraws:
     """Makes a direct solve's exact linear draws once, on first request (see
@@ -256,7 +282,7 @@ class EchoFit:
         ``tau_drw`` to a large constant.
     fixed_params : dict, optional
         ``{site_name: value}`` to hold any of the model's scalar sites
-        (``sigma_drw``, ``tau_drw`` if ``drw_prior=True``, ``log_mdot``,
+        (``sigma_drw``, ``tau_drw`` if ``drw_prior=True``, ``log_mdot_msun_yr``,
         ``inclination``, ``S_driver``, ``C_driver``, ``S_{band}``,
         ``C_{band}``, or a free-lag band's ``tau_{band}``) fixed instead
         of inferring it -- e.g. ``fixed_params={"inclination": 0.0}`` to
@@ -391,8 +417,8 @@ class EchoFit:
         ----------
         lag_mode : str
             ``"physical"`` (default): mean lag comes from
-            ``lag_scaling(log_mdot, wavelength, M_BH)``, tied to every other
-            physical-mode band through the shared ``log_mdot`` -- this is
+            ``lag_scaling(log_mdot_msun_yr, wavelength, M_BH)``, tied to every other
+            physical-mode band through the shared ``log_mdot_msun_yr`` -- this is
             what breaks the driver's absolute-lag degeneracy across 2+ such
             bands (see the model.py module docstring). ``"free"``: an
             independently inferred ``tau_{name}``, e.g. for emission-line
@@ -434,7 +460,7 @@ class EchoFit:
             ``1`` (a linear trend, ``DEFAULT_BACKGROUND_ORDER``): a red-noise
             driver has trends longer than the driver's longest period, which
             otherwise leak into the response (on the CREAM paper's synthetic
-            random-walk tests they pulled ``log_mdot`` towards high values at
+            random-walk tests they pulled ``log_mdot_msun_yr`` towards high values at
             SNR 100; on data without such trends the term changed nothing).
             ``0`` keeps ``C_{name}`` as the only non-reverberating part (the
             default until October 2026); see ``docs/extra_components.md``.
@@ -468,7 +494,7 @@ class EchoFit:
 
         Optional for a purely ``lag_mode="physical"`` fit with 2+ bands at
         different wavelengths (already identifiable via the shared
-        ``log_mdot``/thin-disk scaling), but it's the only thing that
+        ``log_mdot_msun_yr``/thin-disk scaling), but it's the only thing that
         anchors the absolute lag origin for any ``lag_mode="free"`` band --
         see ``add_lightcurve``'s ``lag_mode``.
 
@@ -559,7 +585,7 @@ class EchoFit:
             especially) has strong trends on timescales longer than the
             campaign, and a longest period of only the baseline (the
             default until October 2026) cannot represent them: on synthetic
-            random-walk data the fit then biased ``log_mdot`` and
+            random-walk data the fit then biased ``log_mdot_msun_yr`` and
             ``inclination`` high, absorbing the trends into long responses
             (``scripts/synthetic_recovery_grid.py``). The fit at the truth
             improved up to about twice the window and was flat beyond it.
@@ -683,7 +709,7 @@ class EchoFit:
             if self.driver_data.get("fit_error_model", False):
                 valid |= {"sigma_scale_driver", "sigma_jitter_driver"}
         if any(d["lag_mode"] == "physical" for d in self.bands.values()):
-            valid |= {"log_mdot", "inclination"}
+            valid |= {"log_mdot_msun_yr", "inclination"}
             if self.fit_temperature_slope:
                 valid.add("temperature_slope")
         for name, d in self.bands.items():
@@ -743,7 +769,10 @@ class EchoFit:
 
     def _fit_init_strategy(self, num_chains: int, init_from_optimum: bool):
         if not init_from_optimum:
-            return self._init_strategy(num_chains)
+            from numpyro.infer import init_to_uniform
+
+            return _shifted_mdot_init(strategy=self._init_strategy(num_chains) or init_to_uniform,
+                                      shift=float(typical_log_mdot(self.M_BH)))
         if getattr(self, "optimum", None) is None:
             raise ValueError("fit(init_from_optimum=True) needs .optimise() to have been run first.")
         if num_chains != 1:
@@ -781,6 +810,12 @@ class EchoFit:
                     "viscous_slope (e.g. forward_model.thin_disk_response); the active "
                     "discotau.model.response_function does not."
                 )
+        if "log_mdot" in self.fixed_params:
+            raise ValueError(
+                "log_mdot was replaced by log_mdot_msun_yr, log10 of the accretion rate in solar "
+                "masses per year, in October 2026. Convert an old value with log_mdot_msun_yr = "
+                "log_mdot + discotau.forward_model.typical_log_mdot(M_BH)."
+            )
         unknown = set(self.fixed_params) - self._valid_fixed_param_names()
         if unknown:
             raise ValueError(
@@ -849,6 +884,11 @@ class EchoFit:
         state_path = checkpoint_dir / "state.pkl"
         if state_path.exists():
             samples = run_manager.load_samples_npz(checkpoint_dir / "samples.npz")
+            if "log_mdot" in samples:
+                raise ValueError(
+                    f"{run_dir} was checkpointed before log_mdot became log_mdot_msun_yr (solar masses "
+                    "per year, October 2026) and can't be continued; start a new run."
+                )
             extra_fields = run_manager.load_samples_npz(checkpoint_dir / "extra_fields.npz")
             n_done = int(next(iter(samples.values())).shape[0])
             ef._resume_state = dict(
@@ -1088,7 +1128,7 @@ class EchoFit:
         """Directly solve for the posterior, without MCMC.
 
         ``method="nested_laplace"`` (the default since October 2026) runs
-        :meth:`nested_laplace`: a grid over ``log_mdot`` and inclination with
+        :meth:`nested_laplace`: a grid over ``log_mdot_msun_yr`` and inclination with
         the other parameters integrated at every point, corrected by
         importance sampling. It follows a curved ridge or a second mode,
         which a single Gaussian cannot; see ``docs/nested_laplace.md``.
@@ -1129,8 +1169,8 @@ class EchoFit:
         On a 5-band, 500-point synthetic set, the whole first call took
         ~27s (~5s of it L-BFGS; most of the rest one-off JIT compilation of
         the Hessian and the posterior draws) against ~56s for a 500+500
-        dense-mass NUTS run, and its ``log_mdot`` posterior (0.194 +/- 0.012)
-        matched NUTS's (0.193 +/- 0.011). The gap widens for longer runs,
+        dense-mass NUTS run, and its accretion-rate posterior (+/- 0.012 dex) matched
+        NUTS's to 0.001 dex (+/- 0.011). The gap widens for longer runs,
         since NUTS's cost grows with the number of samples and this doesn't;
         see ``docs/performance_improvements.md``. It is weakest for broad,
         bounded, non-Gaussian parameters: inclination's posterior piles up
@@ -1145,7 +1185,7 @@ class EchoFit:
         Gaussian in NumPyro's unconstrained space: fine for a single,
         well-constrained peak, not for a multimodal or strongly skewed
         posterior (e.g. ``lag_mode="free"`` bands, CLAUDE.md's
-        rough-edges note, or ``log_mdot`` and inclination on weakly
+        rough-edges note, or ``log_mdot_msun_yr`` and inclination on weakly
         constraining data): use :meth:`nested_laplace`, which grids those
         parameters and follows a ridge or a second mode, or ``.fit()``.
         The peak is found in unconstrained coordinates, where a bounded
@@ -1217,7 +1257,7 @@ class EchoFit:
         self._validate_before_fit()
 
         kwargs = dict(self._model_kwargs(), marginalise_linear=True)
-        info = _initialize_marginal_model(rng_seed, kwargs, self._init_strategy(1))
+        info = _initialize_marginal_model(rng_seed, kwargs, self._init_strategy(1), self.M_BH)
         z0, unravel = ravel_pytree(info.param_info.z)
         potential = lambda z: info.potential_fn(unravel(z))
         value_and_grad = jax.jit(jax.value_and_grad(potential))
@@ -1231,7 +1271,7 @@ class EchoFit:
                 # overflow to NaN. SciPy's line search cannot backtrack from a
                 # NaN and aborts the whole restart; a huge finite value makes it
                 # backtrack instead. Found when a restart ran to sigma_drw = inf,
-                # log_mdot = 33 on its first step.
+                # an accretion rate 33 dex above typical on its first step.
                 return _NONFINITE_POTENTIAL, np.zeros_like(g)
             return v, g
 
@@ -1292,7 +1332,7 @@ class EchoFit:
             # H's eigenbasis, with the damping raised until the step lowers the
             # potential and relaxed after each success (Levenberg-Marquardt
             # style). A plain Newton step with a backtracking line search stalled
-            # on the curved inclination/log_mdot ridge of the NGC 5548 thin-disc
+            # on the curved inclination/log_mdot_msun_yr ridge of the NGC 5548 thin-disc
             # fit: tiny or negative eigenvalues there make the undamped step
             # enormous, every backtracked fraction of it still went uphill, and
             # restarts stopped 4-110 sd short of the optimum along the ridge.
@@ -1455,10 +1495,10 @@ class EchoFit:
         sampling: see :mod:`discotau.nested_laplace`.
 
         ``optimise()`` fits one Gaussian at one peak. Where the data constrain
-        ``log_mdot`` and inclination only weakly, their posterior is a long,
+        ``log_mdot_msun_yr`` and inclination only weakly, their posterior is a long,
         curved ridge or has two modes, and that Gaussian understates the
         uncertainty several-fold or sits on one mode. This method grids those
-        parameters (``grid_params``, default ``log_mdot``, ``cos_inclination``
+        parameters (``grid_params``, default ``log_mdot_msun_yr``, ``cos_inclination``
         and, when fitted, ``temperature_slope``), integrates the remaining
         nonlinear parameters by a Laplace approximation at every grid point and
         the linear ones exactly, and so follows a ridge or a second mode. Its
@@ -1505,7 +1545,7 @@ class EchoFit:
             self.build_grid()
         self._validate_before_fit()
         kwargs = dict(self._model_kwargs(), marginalise_linear=True)
-        info = _initialize_marginal_model(rng_seed, kwargs, self._init_strategy(1))
+        info = _initialize_marginal_model(rng_seed, kwargs, self._init_strategy(1), self.M_BH)
         result = _nl.run(reverberation_model, kwargs, info, num_samples=num_samples, rng_seed=rng_seed,
                          grid_params=grid_params or _nl.DEFAULT_GRID_PARAMS, n_pass=n_pass, n_fine=n_fine,
                          drop=drop, num_restarts=num_restarts, restart_scale=restart_scale)
@@ -1622,7 +1662,7 @@ class EchoFit:
         light curves) made only when first needed: they cost ~17 ms per sample
         on a 2-band set (a QR solve each), 17-30 s for 1000, more than the
         rest of ``optimise(method="laplace")``. Reading a nonlinear parameter
-        (``ef.samples["log_mdot"]``) never triggers them; reading a linear one,
+        (``ef.samples["log_mdot_msun_yr"]``) never triggers them; reading a linear one,
         iterating the dict (every plot and report does) or saving it does,
         once, for both dicts. They use the model as it is at that moment, so
         don't change the bands or the response function in between."""
@@ -1719,10 +1759,10 @@ class EchoFit:
             param_names = scalar_like
         return plotting.plot_mcmc_diagnostics(samples_by_chain, param_names=param_names, **kwargs)
 
-    def plot_corner(self, param_names=("log_mdot", "inclination"), true_values=None, **kwargs):
+    def plot_corner(self, param_names=("log_mdot_msun_yr", "inclination"), true_values=None, **kwargs):
         """Corner plot (pairwise joint posteriors + marginals, coloured per
         chain) -- see :func:`plotting.plot_corner`. Defaults to
-        ``log_mdot``/``inclination`` (present only if at least one band
+        ``log_mdot_msun_yr``/``inclination`` (present only if at least one band
         used ``lag_mode="physical"``); pass e.g.
         ``param_names=("tau_line_a", "tau_line_b")`` for a free-lag fit.
         """
@@ -1794,7 +1834,7 @@ class EchoFit:
         )
 
     def plot_landscape(self, truth=None, **kwargs):
-        """Badness-of-Fit landscape of ``log_mdot`` against inclination from
+        """Badness-of-Fit landscape of ``log_mdot_msun_yr`` against inclination from
         :meth:`nested_laplace` (the scout grid over the prior range, and the
         final grid with 68/95/99.7 per cent contours) -- see
         :func:`plotting.plot_landscape`. Marks ``truth`` if given and the
@@ -1806,7 +1846,7 @@ class EchoFit:
 
     def plot_landscape_3d(self, truth=None, **kwargs):
         """The same landscape as :meth:`plot_landscape` (the nested solve's two
-        gridded parameters, ``log_mdot`` against ``cos(inclination)`` by
+        gridded parameters, ``log_mdot_msun_yr`` against ``cos(inclination)`` by
         default), drawn as a 3-D mountain range -- see
         :func:`plotting.plot_landscape_3d`. For any other pair, see
         :meth:`plot_sample_landscape_3d`."""
@@ -1868,7 +1908,7 @@ class EchoFit:
         C = jnp.asarray(self.samples["C"])[idx]
         has_physical = any(d["lag_mode"] == "physical" for d in self.bands.values())
         if has_physical:
-            log_mdot = jnp.asarray(self.samples["log_mdot"])[idx]
+            log_mdot_msun_yr = jnp.asarray(self.samples["log_mdot_msun_yr"])[idx]
             inclination = jnp.asarray(self.samples["inclination"])[idx]
             # A fixed slope (the default) is simply not passed, as in the model.
             slope = (jnp.asarray(self.samples["temperature_slope"])[idx]
@@ -1883,7 +1923,7 @@ class EchoFit:
             # leaving the fit and this plot inconsistent with each other.
             slope_kwargs = {"viscous_slope": slope_s} if "temperature_slope" in self.samples else {}
             psi = _model.response_function(
-                self.tau_grid, log_mdot=log_mdot_s, wavelength=wavelength,
+                self.tau_grid, log_mdot_msun_yr=log_mdot_s, wavelength=wavelength,
                 inclination=incl_s, M_BH=self.M_BH, **slope_kwargs,
             )
             return psi
@@ -1903,7 +1943,7 @@ class EchoFit:
         for name, d in self.bands.items():
             S_band, C_band = sample(f"S_{name}"), sample(f"C_{name}")
             if d["lag_mode"] == "physical":
-                psi = jax.vmap(physical_draw, in_axes=(0, 0, 0, None))(log_mdot, inclination, slope, d["wavelength"])
+                psi = jax.vmap(physical_draw, in_axes=(0, 0, 0, None))(log_mdot_msun_yr, inclination, slope, d["wavelength"])
             else:
                 psi = jax.vmap(free_draw)(sample(f"tau_{name}"))
             if d.get("diffuse_continuum", False):

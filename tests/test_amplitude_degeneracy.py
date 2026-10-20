@@ -16,7 +16,7 @@ import numpy as np
 import jax.numpy as jnp
 import pytest
 
-from discotau.forward_model import transfer_coeffs, compute_echo, response_function
+from discotau.forward_model import transfer_coeffs, compute_echo, response_function, typical_log_mdot
 from discotau.echofit import EchoFit
 
 
@@ -28,7 +28,7 @@ def test_global_rescale_of_driver_and_gain_is_an_exact_degeneracy():
     tau_grid = jnp.linspace(0.0, 60.0, 400)
     t_obs = jnp.asarray(np.sort(rng.uniform(0.0, 150.0, size=25)))
 
-    psi = response_function(tau_grid, log_mdot=0.1, wavelength=5000.0, inclination=30.0, M_BH=1e8)
+    psi = response_function(tau_grid, log_mdot_msun_yr=typical_log_mdot(1e8) + 0.1, wavelength=5000.0, inclination=30.0, M_BH=1e8)
     A, B = transfer_coeffs(tau_grid, psi, freqs)
 
     S_band, C_band = 1.3, 0.4

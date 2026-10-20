@@ -14,7 +14,7 @@ The NumPyro probabilistic model tying together:
   driver itself -- see the module docstring note on identifiability below;
 * a per-band causal response function -- either the physical, thin-disk-
   scaling one (``forward_model.response_function``, tied to a single shared
-  ``log_mdot``/``inclination``/``M_BH`` across all such bands) or a free-lag
+  ``log_mdot_msun_yr``/``inclination``/``M_BH`` across all such bands) or a free-lag
   one (``forward_model.tophat_response_free``, an independently inferred
   lag per band, e.g. for emission-line reverberation mapping) -- that
   convolves the driver into each band's echo;
@@ -23,7 +23,7 @@ The NumPyro probabilistic model tying together:
 
 Inferred, always: sigma_drw, {S_k, C_k} driver Fourier coefficients,
 {S_band, C_band} per band; tau_drw too if ``drw_prior=True``. Inferred if
-any band uses the physical response: log_mdot, inclination (shared across
+any band uses the physical response: log_mdot_msun_yr, inclination (shared across
 those bands). Inferred per band using the free-lag response: tau_{band}.
 Inferred if a driver light curve is given: S_driver, C_driver.
 
@@ -33,7 +33,7 @@ Identifiability note: a global shift of the driver by any Δ, compensated by
 shifting every band's response lag by -Δ, leaves the likelihood exactly
 unchanged (see CLAUDE.md) -- the absolute lag origin is not identifiable
 from the echoes alone. The physical response ties every such band's lag to
-one shared ``log_mdot`` through a fixed, monotonic wavelength scaling
+one shared ``log_mdot_msun_yr`` through a fixed, monotonic wavelength scaling
 (``lag_scaling``), which breaks that degeneracy across 2+ bands at
 different wavelengths -- a multiplicative rescaling of the shared parameter
 can't mimic an additive common shift. The free-lag response has no such
@@ -110,7 +110,7 @@ they don't, the posterior on `i` is this prior handed back, so say so.
 
 Fixed-parameter note: `fixed_params` (`EchoFit(fixed_params={...})`) lets
 any of this model's scalar sites (`sigma_drw`, `tau_drw` if `drw_prior=True`
-(it isn't a site at all otherwise), `log_mdot`,
+(it isn't a site at all otherwise), `log_mdot_msun_yr`,
 `inclination`, `S_driver`, `C_driver`, `S_{band}`, `C_{band}`, free-lag
 bands' `tau_{band}`, and any band/driver's `sigma_scale_{name}`/
 `sigma_jitter_{name}` if its error model is turned on, see below) be held
@@ -176,7 +176,7 @@ and references).
 
 **Linear-parameter marginalisation note** (``marginalise_linear=True``).
 With every nonlinear parameter held fixed (``sigma_drw``/``tau_drw``,
-``log_mdot``/``inclination``/``tau_{band}``, each ``S_{band}``/``S_driver``,
+``log_mdot_msun_yr``/``inclination``/``tau_{band}``, each ``S_{band}``/``S_driver``,
 the error-model parameters), every predicted light curve is *linear* in the
 driver's Fourier coefficients and in each band's/the driver's constant
 offset ``C_{band}``/``C_driver``, and all of those have Gaussian priors. With
@@ -217,6 +217,7 @@ import numpyro.distributions as dist
 
 from .forward_model import (
     response_function, tophat_response_free, transfer_coeffs, compute_echo, driver_at, mix_diffuse_continuum,
+    typical_log_mdot,
 )
 
 INCLINATION_MAX_DEG = 80.0
@@ -230,12 +231,12 @@ TYPE1_OPENING_DEG, TYPE1_WIDTH_DEG = 50.0, 10.0
 # fit_temperature_slope=True). The upper bound was 1.5 until NGC 5548's
 # posterior piled up against it.
 TEMPERATURE_SLOPE_PRIOR = (0.5, 2.5)
-# Standard deviation of the Normal(0, sd) prior on log_mdot. It was 1 until
-# September 2026, when NGC 5548's thin-disc fits sat 3 and 6 prior sd into its
-# tail (log_mdot 3.1 with alpha = 3/4, 5.9 with alpha free) and the prior was
-# pulling the free-slope fit by ~0.8. At 5 it is broad on every scale seen so
-# far but still keeps the optimiser off absurd values along the flat
-# log_mdot/alpha direction.
+# Standard deviation (dex) of the Normal prior on log_mdot_msun_yr, centred on
+# forward_model.typical_log_mdot(M_BH) (about 0.5 per cent of Eddington). It was 1
+# until September 2026, when NGC 5548's thin-disc fits sat 3 and 6 prior sd into
+# its tail (alpha = 3/4 and alpha free) and the prior was pulling the free-slope fit
+# by ~0.8 dex. At 5 it is broad on every scale seen so far but still keeps the
+# optimiser off absurd values along the flat accretion-rate/alpha direction.
 LOG_MDOT_PRIOR_SD = 5.0
 # Diffuse-continuum component (add_lightcurve(..., diffuse_continuum=True)):
 # its median delay ~ LogUniform(DCE_DELAY_MIN, tau_max) days (scale-free,
@@ -334,7 +335,7 @@ def reverberation_model(
     bands : dict
         Mapping ``band_name -> {"t", "y", "yerr", "wavelength", "lag_mode",
         "fit_error_model"}`` for each observed light curve. ``lag_mode`` is
-        ``"physical"`` (mean lag tied to the shared ``log_mdot`` via
+        ``"physical"`` (mean lag tied to the shared ``log_mdot_msun_yr`` via
         ``lag_scaling``) or ``"free"`` (an independently inferred
         ``tau_{band_name}``) -- see the module docstring's identifiability
         note for when ``"free"`` needs a ``driver`` to be identifiable.
@@ -461,7 +462,8 @@ def reverberation_model(
 
     # -- shared physical reprocessing parameters (physical-mode bands only) --
     if any(d["lag_mode"] == "physical" for d in bands.values()):
-        log_mdot = _param("log_mdot", dist.Normal(0.0, LOG_MDOT_PRIOR_SD))
+        log_mdot_msun_yr = _param("log_mdot_msun_yr", dist.Normal(float(typical_log_mdot(M_BH)), LOG_MDOT_PRIOR_SD))
+        numpyro.deterministic("mdot_msun_yr", 10.0 ** log_mdot_msun_yr)
         if "inclination" in fixed_params:
             inclination = numpyro.deterministic(
                 "inclination", jnp.asarray(fixed_params["inclination"], dtype=jnp.float32)
@@ -498,7 +500,7 @@ def reverberation_model(
     psi_physical = {}
     if physical:
         psi_physical = dict(zip(physical, _call_responses(
-            response_function, tau_grid, log_mdot, [bands[n]["wavelength"] for n in physical], inclination, M_BH,
+            response_function, tau_grid, log_mdot_msun_yr, [bands[n]["wavelength"] for n in physical], inclination, M_BH,
             **slope_kwargs)))
 
     # -- per-band amplitude / offset + likelihood ------------------------
@@ -681,8 +683,8 @@ _FORCE_PARAMETER_SPACE = False
 _RESPONSE_JIT: dict = {}
 
 
-def _call_response(fn, tau_grid, log_mdot, wavelength, inclination, M_BH, **kwargs):
-    """``fn(tau_grid, log_mdot=..., wavelength=..., inclination=..., M_BH=...)``
+def _call_response(fn, tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH, **kwargs):
+    """``fn(tau_grid, log_mdot_msun_yr=..., wavelength=..., inclination=..., M_BH=...)``
     through one ``jax.jit`` per response function, ``M_BH`` and keyword set.
     Inside a jitted potential this is inlined; in NumPyro's eager set-up pass
     the thin-disc response's ~80 operations were otherwise each compiled on
@@ -692,19 +694,19 @@ def _call_response(fn, tau_grid, log_mdot, wavelength, inclination, M_BH, **kwar
     key = (fn, M_BH, tuple(sorted(kwargs)))
     jitted = _RESPONSE_JIT.get(key)
     if jitted is None:
-        jitted = jax.jit(lambda tau, lm, wl, inc, **kw: fn(tau, log_mdot=lm, wavelength=wl, inclination=inc,
+        jitted = jax.jit(lambda tau, lm, wl, inc, **kw: fn(tau, log_mdot_msun_yr=lm, wavelength=wl, inclination=inc,
                                                             M_BH=M_BH, **kw))
         _RESPONSE_JIT[key] = jitted
     if jitted is not False:
         try:
-            return jitted(tau_grid, log_mdot, jnp.asarray(wavelength, dtype=jnp.float32), inclination, **kwargs)
+            return jitted(tau_grid, log_mdot_msun_yr, jnp.asarray(wavelength, dtype=jnp.float32), inclination, **kwargs)
         except (jax.errors.ConcretizationTypeError, jax.errors.TracerArrayConversionError,
                 jax.errors.TracerBoolConversionError, TypeError):
             _RESPONSE_JIT[key] = False
-    return fn(tau_grid, log_mdot=log_mdot, wavelength=wavelength, inclination=inclination, M_BH=M_BH, **kwargs)
+    return fn(tau_grid, log_mdot_msun_yr=log_mdot_msun_yr, wavelength=wavelength, inclination=inclination, M_BH=M_BH, **kwargs)
 
 
-def _call_responses(fn, tau_grid, log_mdot, wavelengths, inclination, M_BH, **kwargs):
+def _call_responses(fn, tau_grid, log_mdot_msun_yr, wavelengths, inclination, M_BH, **kwargs):
     """Every band's response at once: ``fn`` mapped over ``wavelengths`` with
     ``jax.vmap``, through one ``jax.jit`` per response function, ``M_BH`` and
     keyword set (see :func:`_call_response`). ``vmap`` batches only what depends
@@ -718,17 +720,17 @@ def _call_responses(fn, tau_grid, log_mdot, wavelengths, inclination, M_BH, **kw
     jitted = _RESPONSE_JIT.get(key)
     if jitted is None:
         def all_bands(tau, lm, wls, inc, **kw):
-            return jax.vmap(lambda wl: fn(tau, log_mdot=lm, wavelength=wl, inclination=inc, M_BH=M_BH, **kw))(wls)
+            return jax.vmap(lambda wl: fn(tau, log_mdot_msun_yr=lm, wavelength=wl, inclination=inc, M_BH=M_BH, **kw))(wls)
 
         jitted = _RESPONSE_JIT[key] = jax.jit(all_bands)
     if jitted is not False:
         try:
-            psis = jitted(tau_grid, log_mdot, jnp.asarray(wavelengths, dtype=jnp.float32), inclination, **kwargs)
+            psis = jitted(tau_grid, log_mdot_msun_yr, jnp.asarray(wavelengths, dtype=jnp.float32), inclination, **kwargs)
             return [psis[k] for k in range(len(wavelengths))]
         except (jax.errors.ConcretizationTypeError, jax.errors.TracerArrayConversionError,
                 jax.errors.TracerBoolConversionError, TypeError, ValueError):
             _RESPONSE_JIT[key] = False
-    return [_call_response(fn, tau_grid, log_mdot, wl, inclination, M_BH, **kwargs) for wl in wavelengths]
+    return [_call_response(fn, tau_grid, log_mdot_msun_yr, wl, inclination, M_BH, **kwargs) for wl in wavelengths]
 
 
 def _linear_marginal(blocks, prior_scale, draw_linear):

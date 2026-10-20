@@ -11,6 +11,7 @@ import pytest
 
 from discotau.synthetic import generate_synthetic_dataset
 from discotau.echofit import EchoFit
+from discotau.forward_model import typical_log_mdot
 
 
 def _dataset():
@@ -102,7 +103,7 @@ def test_rw_prior_recovers_log_mdot_on_synthetic_data():
     #19 flips the default, so the default path needs the same end-to-end
     validation), just under the new default random-walk prior."""
     data = generate_synthetic_dataset(
-        M_BH=1.0e9, log_mdot_true=0.0, inclination_true=35.0,
+        M_BH=1.0e9, log_mdot_msun_yr_true=float(typical_log_mdot(1.0e9)), inclination_true=35.0,
         sigma_drw_true=0.3, tau_drw_true=30.0,
         bands={"g": 4770.0, "i": 7625.0}, t_span=200.0, n_obs_per_band=50,
         n_freq=15, n_tau=100, tau_max=50.0, noise_level=0.02, seed=2,
@@ -111,7 +112,7 @@ def test_rw_prior_recovers_log_mdot_on_synthetic_data():
     for name, d in data["bands"].items():
         ef.add_lightcurve(name, wavelength=d["wavelength"], t=d["t"], y=d["y"], yerr=d["yerr"])
     ef.build_grid(n_freq=15, n_tau=100, period_max=2 * np.pi / float(data["freqs"].min()))
-    # 1000 warmup steps, not 500: with log_mdot's prior widened from N(0, 1) to
+    # 1000 warmup steps, not 500: with log_mdot_msun_yr's prior widened from N(0, 1) to
     # N(0, 5**2) (model.LOG_MDOT_PRIOR_SD) 500 left 6% of transitions divergent.
     ef.fit(rng_seed=0, num_warmup=1000, num_samples=500, num_chains=1, progress_bar=False)
 
@@ -119,7 +120,7 @@ def test_rw_prior_recovers_log_mdot_on_synthetic_data():
     assert diverging.mean() < 0.05, f"{diverging.sum()}/{len(diverging)} divergent transitions"
     assert "tau_drw" not in ef.samples
 
-    log_mdot_mean = float(ef.samples["log_mdot"].mean())
-    assert abs(log_mdot_mean - data["truth"]["log_mdot"]) < 0.3, (
-        f"log_mdot posterior mean {log_mdot_mean:.3f} far from truth {data['truth']['log_mdot']:.3f}"
+    log_mdot_mean = float(ef.samples["log_mdot_msun_yr"].mean())
+    assert abs(log_mdot_mean - data["truth"]["log_mdot_msun_yr"]) < 0.3, (
+        f"log_mdot_msun_yr posterior mean {log_mdot_mean:.3f} far from truth {data['truth']['log_mdot_msun_yr']:.3f}"
     )

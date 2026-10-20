@@ -16,6 +16,7 @@ import warnings
 from pathlib import Path
 
 from discotau import EchoFit
+from discotau.forward_model import typical_log_mdot
 from discotau.synthetic import generate_synthetic_dataset, with_disc_fluxes
 
 OUT = Path(__file__).resolve().parents[1] / "docs" / "images" / "disc_sed_example.png"
@@ -24,7 +25,7 @@ HOST = {"g": 1.0, "r": 2.0, "i": 3.0, "z": 3.5}  # mJy; none in u, the bluest ba
 
 
 def main():
-    data = generate_synthetic_dataset(M_BH=1e8, log_mdot_true=0.3, inclination_true=30.0, n_obs_per_band=150,
+    data = generate_synthetic_dataset(M_BH=1e8, log_mdot_msun_yr_true=float(typical_log_mdot(1e8)) + 0.3, inclination_true=30.0, n_obs_per_band=150,
                                       t_span=250, noise_level=0.03, seed=2)
     data = with_disc_fluxes(data, redshift=REDSHIFT, h0=70.0, host_mjy=HOST, ebv_galactic=EBV)
     ef = EchoFit(M_BH=1e8, redshift=REDSHIFT, ebv_galactic=EBV, sed_analysis=True)

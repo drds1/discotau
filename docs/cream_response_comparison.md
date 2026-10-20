@@ -44,7 +44,7 @@ Both codes get the same disc:
 | Quantity | Value |
 |---|---|
 | Black-hole mass | $10^{7.51}\mkern3mu M_\odot$ (NGC 5548; Pancoast et al. 2014) |
-| Temperature at one light-day, $T_1$ | 19,400 K (discotau's `log_mdot` = 3.079) |
+| Temperature at one light-day, $T_1$ | 19,400 K (discotau's `log_mdot_msun_yr` = 0.636, 4.3 M☉/yr) |
 | Temperature slope | 3/4 (CREAM: `slope_v` = `slope_i` = 0.75) |
 | Inner radius | $3R_\mathrm{S}$ (CREAM: `rinsch` = 1) |
 | Wavelength | 5000 Å |

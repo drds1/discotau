@@ -67,7 +67,7 @@ disc model (at least one `lag_mode="physical"` band).
 
 ### The model disc
 
-The fitted `log_mdot` and the black hole mass give $T_1$, the temperature at 1 light-day
+The fitted `log_mdot_msun_yr` and the black hole mass give $T_1$, the temperature at 1 light-day
 (`forward_model.disk_t1_kelvin`), and
 
 ```math

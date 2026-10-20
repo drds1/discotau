@@ -108,7 +108,7 @@ therefore works over a (radius, azimuth) grid:
 - it deposits each element on the lag grid with linear weights;
 - it smooths the result by 5 per cent in $\ln\tau$, like `thin_disk_response`.
 
-The response stays differentiable in `log_mdot` and `inclination`. It costs
+The response stays differentiable in `log_mdot_msun_yr` and `inclination`. It costs
 about 20 ms per band under `jax.jit` on a laptop, with the default 400 radii
 (refined automatically across a rim and per ripple) and 180 azimuths. That is
 about four times `thin_disk_response`.

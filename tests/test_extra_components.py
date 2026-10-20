@@ -22,7 +22,7 @@ from scipy.stats import multivariate_normal
 
 import discotau.model as model_module
 from discotau import EchoFit
-from discotau.forward_model import legendre_background_basis, lognormal_response, mix_diffuse_continuum
+from discotau.forward_model import legendre_background_basis, lognormal_response, mix_diffuse_continuum, typical_log_mdot
 from discotau.model import reverberation_model
 from discotau.synthetic import generate_synthetic_dataset
 
@@ -107,7 +107,7 @@ def test_extra_component_sites_appear_when_switched_on(marginalise):
 
 
 _NONLINEAR = dict(
-    sigma_drw=jnp.asarray(0.7), log_mdot=jnp.asarray(0.2), cos_inclination=jnp.asarray(0.6),
+    sigma_drw=jnp.asarray(0.7), log_mdot_msun_yr=jnp.asarray(0.2), cos_inclination=jnp.asarray(0.6),
     S_g=jnp.asarray(0.8), S_i=jnp.asarray(1.3), S_driver=jnp.asarray(1.1),
     dce_fraction_i=jnp.asarray(0.3), dce_delay_i=jnp.asarray(5.0), dce_width_i=jnp.asarray(0.3),
 )
@@ -189,7 +189,7 @@ def test_optimise_recovers_injected_diffuse_continuum_and_backgrounds():
     large finite potential."""
     truth_dce = {"r": (0.3, 8.0, 0.25), "i": (0.4, 8.0, 0.25)}
     truth_bg = {"u": [0.4, -0.2], "z": [-0.3, 0.15]}
-    data = generate_synthetic_dataset(M_BH=1e8, log_mdot_true=0.3, n_obs_per_band=120, t_span=250,
+    data = generate_synthetic_dataset(M_BH=1e8, log_mdot_msun_yr_true=float(typical_log_mdot(1e8)) + 0.3, n_obs_per_band=120, t_span=250,
                                       noise_level=0.03, seed=3, diffuse_continuum=truth_dce, background=truth_bg)
     ef = EchoFit(M_BH=1e8)
     for n, d in data["bands"].items():
@@ -215,7 +215,7 @@ def test_optimise_recovers_injected_diffuse_continuum_and_backgrounds():
         plain.optimise(num_samples=50, num_restarts=1, method="laplace")
     assert with_components > plain.log_evidence + 10
     s = ef.samples
-    assert abs(np.mean(s["log_mdot"]) - 0.3) < 0.1
+    assert abs(np.mean(s["log_mdot_msun_yr"]) - data["truth"]["log_mdot_msun_yr"]) < 0.1
     for n, (frac, delay, width) in truth_dce.items():
         assert abs(np.mean(s[f"dce_fraction_{n}"]) - frac) < 0.1
         assert abs(np.mean(s[f"dce_delay_{n}"]) - delay) < 2.0

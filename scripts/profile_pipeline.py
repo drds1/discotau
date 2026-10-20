@@ -56,6 +56,7 @@ import matplotlib.pyplot as plt
 from discotau import forward_model
 from discotau.echofit import EchoFit
 from discotau.model import reverberation_model
+from discotau.forward_model import typical_log_mdot
 from discotau.synthetic import generate_synthetic_dataset
 
 # Which measurements are paid once per run (independent of how long you
@@ -97,7 +98,7 @@ def _build_reference_echofit(seed: int) -> tuple[EchoFit, dict]:
     ``build_grid()`` so callers can time that step on its own, without
     ``generate_synthetic_dataset``'s own (much larger) cost folded in."""
     data = generate_synthetic_dataset(
-        M_BH=1.0e9, log_mdot_true=0.0, inclination_true=35.0,
+        M_BH=1.0e9, log_mdot_msun_yr_true=float(typical_log_mdot(1.0e9)), inclination_true=35.0,
         sigma_drw_true=0.3, tau_drw_true=30.0,
         bands={"g": 4770.0, "i": 7625.0}, t_span=200.0, n_obs_per_band=50,
         n_freq=15, n_tau=100, tau_max=50.0, noise_level=0.05, seed=seed,
@@ -113,21 +114,21 @@ def _build_reference_echofit(seed: int) -> tuple[EchoFit, dict]:
 
 
 def profile_response_functions(ef: EchoFit, n_repeat: int) -> dict:
-    tau_grid, log_mdot, wavelength, inclination, M_BH = (
-        ef.tau_grid, 0.1, 5000.0, 45.0, ef.M_BH,
+    tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH = (
+        ef.tau_grid, float(typical_log_mdot(ef.M_BH)) + 0.1, 5000.0, 45.0, ef.M_BH,
     )
     results = {}
 
     _, results["skew_normal"] = _time_jit(
-        forward_model.response_function, tau_grid, log_mdot, wavelength, inclination, M_BH,
+        forward_model.response_function, tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH,
         n_repeat=n_repeat,
     )
     _, results["thin_disk_default_smoothing"] = _time_jit(
-        forward_model.thin_disk_response, tau_grid, log_mdot, wavelength, inclination, M_BH,
+        forward_model.thin_disk_response, tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH,
         n_repeat=n_repeat,
     )
     _, results["thin_disk_no_smoothing"] = _time_jit(
-        forward_model.thin_disk_response, tau_grid, log_mdot, wavelength, inclination, M_BH,
+        forward_model.thin_disk_response, tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH,
         n_repeat=n_repeat, smoothing_days=0.0,
     )
 
@@ -135,7 +136,7 @@ def profile_response_functions(ef: EchoFit, n_repeat: int) -> dict:
     fast_response = forward_model.build_thin_disk_response_fast(M_BH=M_BH)
     table_build_s = time.perf_counter() - t0
     _, results["thin_disk_fast_templated"] = _time_jit(
-        fast_response, tau_grid, log_mdot, wavelength, inclination, M_BH,
+        fast_response, tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH,
         n_repeat=n_repeat,
     )
     results["thin_disk_fast_table_build_once"] = table_build_s
@@ -144,7 +145,7 @@ def profile_response_functions(ef: EchoFit, n_repeat: int) -> dict:
 
 def profile_convolution(ef: EchoFit, n_repeat: int) -> dict:
     tau_grid, freqs = ef.tau_grid, ef.freqs
-    psi = forward_model.response_function(tau_grid, 0.1, 5000.0, 45.0, ef.M_BH)
+    psi = forward_model.response_function(tau_grid, float(typical_log_mdot(ef.M_BH)) + 0.1, 5000.0, 45.0, ef.M_BH)
     S = np.ones(len(freqs))
     C = np.zeros(len(freqs))
     t_obs = next(iter(ef.bands.values()))["t"]

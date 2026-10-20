@@ -23,7 +23,7 @@ class _FakeEchoFit:
 
 def _lazy():
     ef = _FakeEchoFit()
-    nonlinear = {"log_mdot": np.arange(4.0)[None, :]}
+    nonlinear = {"log_mdot_msun_yr": np.arange(4.0)[None, :]}
     resolver = _LinearDraws(ef, nonlinear, rng_seed=0, sites=["S", "y_pred_g"])
     by_chain = _LazySamples(nonlinear, resolver, by_chain=True)
     flat = _LazySamples({k: v[0] for k, v in nonlinear.items()}, resolver, by_chain=False)
@@ -32,7 +32,7 @@ def _lazy():
 
 def test_nonlinear_reads_and_membership_do_not_draw():
     ef, flat, _ = _lazy()
-    np.testing.assert_array_equal(flat["log_mdot"], np.arange(4.0))
+    np.testing.assert_array_equal(flat["log_mdot_msun_yr"], np.arange(4.0))
     assert "S" in flat and "y_pred_g" in flat and "nope" not in flat
     assert ef.calls == 0
 
@@ -48,6 +48,6 @@ def test_a_linear_read_draws_once_for_both_dicts():
 
 def test_walking_the_dict_draws_and_includes_every_site():
     ef, flat, _ = _lazy()
-    assert set(flat) == {"log_mdot", "S", "y_pred_g"}
+    assert set(flat) == {"log_mdot_msun_yr", "S", "y_pred_g"}
     assert len(flat) == 3 and set(dict(flat.items())) == set(flat.copy())
     assert ef.calls == 1

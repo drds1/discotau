@@ -35,7 +35,7 @@ import numpy as np  # noqa: E402
 
 import discotau.model as model  # noqa: E402
 from discotau import EchoFit  # noqa: E402
-from discotau.forward_model import thin_disk_response  # noqa: E402
+from discotau.forward_model import thin_disk_response, typical_log_mdot  # noqa: E402
 from discotau.grid_utils import graded_tau_grid  # noqa: E402
 from discotau.plotting import wavelength_to_colour  # noqa: E402
 from discotau.rippled_disc import (  # noqa: E402
@@ -49,7 +49,8 @@ from discotau.rippled_disc import (  # noqa: E402
 from discotau.synthetic import generate_synthetic_dataset  # noqa: E402
 
 OUT = Path(__file__).resolve().parents[1] / "docs" / "images"
-M_BH, LOG_MDOT, INCLINATION = 7e7, 0.0587, 45.0
+M_BH, INCLINATION = 7e7, 45.0
+LOG_MDOT = float(typical_log_mdot(M_BH)) + 0.0587  # log10 Msun/yr
 EPS = NGC5548_RIM["lamppost_efficiency"]
 DISCS = {
     "flat": (dict(r_out=5.6, lamppost_efficiency=EPS), "0.4"),
@@ -138,11 +139,11 @@ def fig_lags_sed():
 
 def synthetic_fits():
     rim = functools.partial(rippled_disc_response, **NGC5548_RIM)
-    data = generate_synthetic_dataset(bands=BANDS, M_BH=M_BH, log_mdot_true=LOG_MDOT, inclination_true=INCLINATION,
+    data = generate_synthetic_dataset(bands=BANDS, M_BH=M_BH, log_mdot_msun_yr_true=LOG_MDOT, inclination_true=INCLINATION,
                                       t_span=250.0, n_obs_per_band=150, noise_level=0.02, tau_max=30.0, seed=3,
                                       response=rim)
     truth = {b: d["tau_mean"] for b, d in data["truth"]["bands"].items()}
-    out = dict(truth=dict(log_mdot=LOG_MDOT, inclination=INCLINATION, mean_delays=truth), fits={})
+    out = dict(truth=dict(log_mdot_msun_yr=LOG_MDOT, inclination=INCLINATION, mean_delays=truth), fits={})
     t = np.asarray(TAU)
     for label, response, slope in (("rimmed disc (true geometry)", rim, False),
                                    ("flat disc, Model 1", thin_disk_response, False),
@@ -158,10 +159,10 @@ def synthetic_fits():
             ef.optimise(num_samples=300, num_restarts=2, method="laplace")
         s = ef.samples
         params = {k: [float(np.median(s[k])), float(np.std(s[k]))]
-                  for k in ("log_mdot", "inclination", "temperature_slope") if k in s}
-        best = {k: float(np.median(s[k])) for k in ("log_mdot", "inclination", "temperature_slope") if k in s}
+                  for k in ("log_mdot_msun_yr", "inclination", "temperature_slope") if k in s}
+        best = {k: float(np.median(s[k])) for k in ("log_mdot_msun_yr", "inclination", "temperature_slope") if k in s}
         kw = {"viscous_slope": best["temperature_slope"]} if slope else {}
-        delays = {b: mean_delay(t, response(TAU, best["log_mdot"], BANDS[b], best["inclination"], M_BH, **kw))
+        delays = {b: mean_delay(t, response(TAU, best["log_mdot_msun_yr"], BANDS[b], best["inclination"], M_BH, **kw))
                   for b in BANDS}
         out["fits"][label] = dict(params=params, log_evidence=float(ef.log_evidence), mean_delays=delays,
                                   seconds=time.time() - t0)
@@ -180,7 +181,7 @@ def fig_synthetic(result):
         p = f["params"]
         extra = f", α = {p['temperature_slope'][0]:.2f}" if "temperature_slope" in p else ""
         ax.plot(lam, w2(f["mean_delays"]), "s-", ms=4, color=colour,
-                label=f"{label}: log ṁ = {p['log_mdot'][0]:.2f}{extra}, Δln Z = {f['log_evidence'] - best:.0f}")
+                label=f"{label}: log ṁ = {p['log_mdot_msun_yr'][0]:.2f}{extra}, Δln Z = {f['log_evidence'] - best:.0f}")
     ax.set_xlabel("wavelength (Å)")
     ax.set_ylabel("mean delay relative to w2 (days)")
     ax.set_title(f"Light curves from the rimmed disc (true log ṁ = {LOG_MDOT:.2f}, i = {INCLINATION:.0f}°)",

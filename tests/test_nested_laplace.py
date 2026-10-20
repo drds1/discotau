@@ -89,12 +89,12 @@ def test_echofit_nested_laplace_end_to_end():
         ef.optimise(num_samples=200, n_pass=(6, 5), n_fine=(10, 8))  # nested Laplace is optimise()'s default
     r = ef.nested_laplace_result
     assert ef.optimise_timings["method"] == "nested_laplace" and ef.optimise_restarts is None
-    assert np.ndim(ef.optimum["log_mdot"]) == 0 and ef.laplace_covariance.shape[0] == ef.laplace_covariance.shape[1]
-    assert set(r["names"]) == {"log_mdot", "cos_inclination"}
-    for key in ("log_mdot", "inclination", "sigma_drw", "S", "C", "y_pred_g"):
+    assert np.ndim(ef.optimum["log_mdot_msun_yr"]) == 0 and ef.laplace_covariance.shape[0] == ef.laplace_covariance.shape[1]
+    assert set(r["names"]) == {"log_mdot_msun_yr", "cos_inclination"}
+    for key in ("log_mdot_msun_yr", "inclination", "sigma_drw", "S", "C", "y_pred_g"):
         assert key in ef.samples and len(ef.samples[key]) == 200
     assert np.isfinite(ef.log_evidence) and np.isfinite(r["k_hat"])
-    assert abs(np.mean(ef.samples["log_mdot"]) - data["truth"]["log_mdot"]) < 4 * np.std(ef.samples["log_mdot"]) + 0.1
+    assert abs(np.mean(ef.samples["log_mdot_msun_yr"]) - data["truth"]["log_mdot_msun_yr"]) < 4 * np.std(ef.samples["log_mdot_msun_yr"]) + 0.1
     assert r["timings"]["final_points"] == 80
 
 
@@ -167,7 +167,7 @@ def test_optimise_rejects_an_unknown_method():
 def _toy_with_nan_gradient(y_b):
     # A term that is zero everywhere but whose gradient is NaN for
     # s < -2.5 (jnp.where's unselected branch, sqrt of a negative number): the
-    # kind of float32 trap the thin-disc response had at extreme log_mdot, which
+    # kind of float32 trap the thin-disc response had at extreme log_mdot_msun_yr, which
     # made a finite-difference Hessian NaN and stopped whole fits with LAPACK's
     # "Eigenvalues did not converge".
     s = numpyro.sample("s", dist.Normal(0.0, 1.0))  # gridded

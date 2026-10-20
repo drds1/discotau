@@ -9,7 +9,10 @@ from numpyro import handlers
 import discotau.model as model_mod
 from discotau import EchoFit
 from discotau.echofit import PERIOD_MAX_FACTOR
-from discotau.forward_model import disk_t1_kelvin, lag_scaling, thin_disk_response, wien_radius, _WIEN_B_ANGSTROM_KELVIN
+from discotau.forward_model import (
+    disk_t1_kelvin, lag_scaling, log_mdot_from_t1, thin_disk_response, typical_log_mdot, wien_radius,
+    _WIEN_B_ANGSTROM_KELVIN,
+)
 from discotau.model import reverberation_model
 from discotau.synthetic import generate_synthetic_dataset
 
@@ -111,12 +114,12 @@ def test_default_longest_driver_period_covers_twice_the_baseline_plus_tau_max(da
 
 @pytest.mark.parametrize("slope", [0.5, 0.75, 1.2])
 def test_wien_radius_is_where_the_disc_has_the_wien_temperature(slope):
-    log_mdot, wavelength, m_bh = 0.7, 5000.0, 2.0e8
-    r = float(wien_radius(log_mdot, wavelength, m_bh, viscous_slope=slope))
-    t1 = float(disk_t1_kelvin(log_mdot, m_bh))
+    log_mdot_msun_yr, wavelength, m_bh = 0.7, 5000.0, 2.0e8
+    r = float(wien_radius(log_mdot_msun_yr, wavelength, m_bh, viscous_slope=slope))
+    t1 = float(disk_t1_kelvin(log_mdot_msun_yr, m_bh))
     assert t1 * r ** -slope == pytest.approx(_WIEN_B_ANGSTROM_KELVIN / wavelength, rel=1e-4)
     if slope == 0.75:
-        assert r == pytest.approx(float(lag_scaling(log_mdot, wavelength, m_bh)), rel=1e-4)
+        assert r == pytest.approx(float(lag_scaling(log_mdot_msun_yr, wavelength, m_bh)), rel=1e-4)
 
 
 def _inclination_factor(ef, inclination_deg, marginalise_linear=False):
@@ -167,3 +170,65 @@ def test_type1_prior_is_ignored_for_a_fixed_inclination(data):
 def test_bad_inclination_prior_settings_are_refused(kwargs, message):
     with pytest.raises(ValueError, match=message):
         EchoFit(M_BH=1.0e8, **kwargs)
+
+
+# -- the accretion rate in solar masses per year (October 2026) --
+
+def test_t1_is_the_standard_thin_disc_temperature_at_one_light_day():
+    # T_1**4 = 3 G M Mdot / (8 pi sigma R**3) at R = 1 light-day, in cgs, for
+    # Fairall 9's mass and the 0.13 Msun/yr flux-matched rate (T_1 ~ 13.6 kK).
+    G, c, sigma, msun, year = 6.674e-8, 2.99792458e10, 5.670374e-5, 1.98855e33, 3.15576e7
+    m_bh, mdot = 2.55e8, 0.1316
+    expected = (3 * G * m_bh * msun * mdot * msun / year / (8 * np.pi * sigma * (c * 86400.0) ** 3)) ** 0.25
+    assert float(disk_t1_kelvin(np.log10(mdot), m_bh)) == pytest.approx(expected, rel=1e-4)
+    assert expected == pytest.approx(13580.0, rel=2e-3)
+    assert float(log_mdot_from_t1(expected, m_bh)) == pytest.approx(np.log10(mdot), abs=1e-4)
+
+
+def test_lag_is_the_wien_radius_of_the_t1_disc():
+    m_bh, log_mdot = 2.55e8, -0.88
+    t1 = float(disk_t1_kelvin(log_mdot, m_bh))
+    for wavelength in (1928.0, 5468.0):
+        assert float(lag_scaling(log_mdot, wavelength, m_bh)) == pytest.approx(
+            (t1 * wavelength / _WIEN_B_ANGSTROM_KELVIN) ** (4 / 3), rel=1e-4)
+
+
+@pytest.mark.parametrize("m_bh", [1e6, 1e8, 1e10])
+def test_typical_accretion_rate_is_about_half_a_per_cent_of_eddington(m_bh):
+    # Eddington rate for radiative efficiency 0.1: L_Edd / (0.1 c**2), in Msun/yr.
+    mdot_edd = 1.26e38 * m_bh / (0.1 * 2.99792458e10 ** 2) * 3.15576e7 / 1.98855e33
+    ratio = 10 ** float(typical_log_mdot(m_bh)) / mdot_edd
+    assert 0.004 < ratio < 0.006
+
+
+def test_accretion_rate_prior_is_centred_on_the_typical_rate_and_reported_in_msun_per_year(data):
+    tr = _trace(_echofit(data))
+    site = tr["log_mdot_msun_yr"]
+    assert float(site["fn"].loc) == pytest.approx(float(typical_log_mdot(1.0e8)))
+    assert float(site["fn"].scale) == model_mod.LOG_MDOT_PRIOR_SD
+    assert float(tr["mdot_msun_yr"]["value"]) == pytest.approx(10 ** float(site["value"]), rel=1e-5)
+
+
+def test_the_old_dimensionless_name_is_refused_with_the_conversion(data):
+    ef = _echofit(data, fixed_params={"log_mdot": 0.666})
+    with pytest.raises(ValueError, match="typical_log_mdot"):
+        ef._validate_before_fit()
+
+
+def test_starts_are_centred_on_the_typical_rate(data):
+    # NumPyro starts unconstrained sites uniformly in (-2, 2); the accretion rate's
+    # start is shifted to that range about typical_log_mdot, as before the change.
+    import jax
+    from numpyro.infer.util import initialize_model
+
+    import discotau.echofit as echofit_mod
+
+    ef = _echofit(data)
+    typical = float(typical_log_mdot(1.0e8))
+    kwargs = ef._model_kwargs()
+    for seed in range(3):
+        nuts = initialize_model(jax.random.PRNGKey(seed), reverberation_model, model_kwargs=kwargs,
+                                init_strategy=ef._fit_init_strategy(1, False)).param_info.z
+        solve = echofit_mod._initialize_marginal_model(seed, kwargs, ef._init_strategy(1), ef.M_BH).param_info.z
+        for z in (nuts, solve):
+            assert -2.0 < float(z["log_mdot_msun_yr"]) - typical < 2.0

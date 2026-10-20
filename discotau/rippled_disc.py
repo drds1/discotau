@@ -39,7 +39,7 @@ the inner disc at high inclination) is not modelled.
 The response is a two-dimensional (radius, azimuth) quadrature, each element's
 contribution deposited onto the lag grid with linear weights and the result
 smoothed in ``ln tau`` (``forward_model._smooth_response``), so it stays
-differentiable in ``log_mdot`` and ``inclination``. The disc's geometry is fixed
+differentiable in ``log_mdot_msun_yr`` and ``inclination``. The disc's geometry is fixed
 (plain Python floats), not sampled: it sets the radial grid and the shadows,
 which are therefore computed once, outside the gradient.
 
@@ -129,7 +129,7 @@ def _radial_grid(r_in, r_out, n_r, r_ref, beta, ripple_amplitude, ripple_wavelen
     return r, np.diff(edges)
 
 
-def disc_surface(log_mdot, M_BH, height: float = 0.0, r_ref: float = 1.0, beta: float = 1.0,
+def disc_surface(log_mdot_msun_yr, M_BH, height: float = 0.0, r_ref: float = 1.0, beta: float = 1.0,
                  ripple_amplitude: float = 0.0, ripple_wavelength: float = 1.0, ripple_slope: float = 0.0,
                  r_out: float = 100.0, lamppost_height_rs: float = 3.0, lamppost_efficiency: float = 1.0,
                  exact_irradiation: bool = True, n_r: int = 400):
@@ -177,13 +177,13 @@ def disc_surface(log_mdot, M_BH, height: float = 0.0, r_ref: float = 1.0, beta: 
     # paper's irr = f/r**2 this is its eq. 3 exactly.
     t4 = r ** -3.0 * (1.0 - jnp.sqrt(r_in / r)) + (4.0 / 3.0) * lamppost_efficiency / r_g * irr
     warm = t4 > 1e-20
-    T = disk_t1_kelvin(log_mdot, M_BH) * jnp.where(warm, t4, 1.0) ** 0.25
+    T = disk_t1_kelvin(log_mdot_msun_yr, M_BH) * jnp.where(warm, t4, 1.0) ** 0.25
     T = jnp.where(warm, T, 0.0)
     return dict(r=r, dr=jnp.asarray(dr_np), H=jnp.asarray(h_np), dH=jnp.asarray(dh_np), f=f, lit=lit,
                 irr=irr, h_lp=h_lp, r_in=r_in, T=T)
 
 
-def response_elements(log_mdot, wavelength, inclination, M_BH, n_phi: int = 180, full_circle: bool = False,
+def response_elements(log_mdot_msun_yr, wavelength, inclination, M_BH, n_phi: int = 180, full_circle: bool = False,
                       **geometry):
     """The disc's surface elements on a (radius, azimuth) grid: ``r``, ``phi``
     (0 towards the observer), each element's ``delay`` (days, Starkey et al. 2023
@@ -193,7 +193,7 @@ def response_elements(log_mdot, wavelength, inclination, M_BH, n_phi: int = 180,
     keywords ``geometry`` takes. :func:`rippled_disc_response` deposits these on
     a lag grid; they are also what the animation in ``docs/rippled_disc.md``
     draws."""
-    s = disc_surface(log_mdot, M_BH, **geometry)
+    s = disc_surface(log_mdot_msun_yr, M_BH, **geometry)
     r, dr, H, dH, irr, T = s["r"], s["dr"], s["H"], s["dH"], s["irr"], s["T"]
     incl = jnp.deg2rad(jnp.clip(inclination, 0.0, 89.9))
     sini, cosi = jnp.sin(incl), jnp.cos(incl)
@@ -232,7 +232,7 @@ def response_elements(log_mdot, wavelength, inclination, M_BH, n_phi: int = 180,
 
 def rippled_disc_response(
     tau_grid,
-    log_mdot,
+    log_mdot_msun_yr,
     wavelength,
     inclination,
     M_BH,
@@ -262,7 +262,7 @@ def rippled_disc_response(
     lamppost's height in Schwarzschild radii and ``lamppost_efficiency`` its
     reprocessed luminosity in units of ``Mdot c**2`` (the paper's
     ``eps_LP = L_LP (1 - albedo) / (Mdot c**2)``), with ``Mdot`` the one that
-    gives this ``log_mdot``'s ``T_1``. All of these are fixed geometry, not
+    gives this ``log_mdot_msun_yr``'s ``T_1``. All of these are fixed geometry, not
     sampled parameters. ``exact_irradiation`` is as in :func:`disc_surface`.
     ``n_r``/``n_phi`` set the quadrature (the radial grid is
     refined automatically across a rim and ripples); the smoothing arguments are
@@ -271,7 +271,7 @@ def rippled_disc_response(
     ``tau_grid`` must extend past the longest delay that matters (about
     ``r_out (1 + sin i)``): light arriving later is dropped before normalising.
     """
-    e = response_elements(log_mdot, wavelength, inclination, M_BH, n_phi=n_phi, height=height, r_ref=r_ref,
+    e = response_elements(log_mdot_msun_yr, wavelength, inclination, M_BH, n_phi=n_phi, height=height, r_ref=r_ref,
                           beta=beta, ripple_amplitude=ripple_amplitude, ripple_wavelength=ripple_wavelength,
                           ripple_slope=ripple_slope, r_out=r_out, lamppost_height_rs=lamppost_height_rs,
                           lamppost_efficiency=lamppost_efficiency, exact_irradiation=exact_irradiation, n_r=n_r)
@@ -291,11 +291,11 @@ def rippled_disc_response(
     cell = 0.5 * (jnp.concatenate([gaps, jnp.zeros(1)]) + jnp.concatenate([jnp.zeros(1), gaps]))
     raw = mass / jnp.clip(cell, 1e-12, None)
     raw = jnp.where(tau_grid >= 0.0, raw, 0.0)
-    r_scale = wien_radius(log_mdot, wavelength, M_BH)
+    r_scale = wien_radius(log_mdot_msun_yr, wavelength, M_BH)
     return _smooth_response(raw, tau_grid, r_scale, smoothing_frac, smoothing_days, smoothing_log)
 
 
-def rippled_disc_fnu(lam_rest_angstrom, log_mdot, inclination, M_BH, dl_mpc: float, redshift: float = 0.0,
+def rippled_disc_fnu(lam_rest_angstrom, log_mdot_msun_yr, inclination, M_BH, dl_mpc: float, redshift: float = 0.0,
                      n_phi: int = 90, **geometry):
     """Observed flux density (mJy) of a rimmed or rippled disc at luminosity
     distance ``dl_mpc`` (Starkey et al. 2023 eq. 9, with each surface element's
@@ -303,7 +303,7 @@ def rippled_disc_fnu(lam_rest_angstrom, log_mdot, inclination, M_BH, dl_mpc: flo
     ``cos(i)``): ``(1 + z) / D_L**2 int B_nu(nu_rest, T) dA_projected``.
     ``geometry`` takes :func:`disc_surface`'s keywords. Plain numpy (float64), for
     spectra and figures; not differentiable."""
-    s = disc_surface(log_mdot, M_BH, **geometry)
+    s = disc_surface(log_mdot_msun_yr, M_BH, **geometry)
     r, dr = np.asarray(s["r"], dtype=float), np.asarray(s["dr"], dtype=float)
     dH, T = np.asarray(s["dH"], dtype=float), np.asarray(s["T"], dtype=float)
     incl = np.deg2rad(float(inclination))

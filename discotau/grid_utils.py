@@ -148,7 +148,7 @@ def check_tau_grid_resolution(
     tau_grid: np.ndarray,
     bands: dict,
     M_BH: Optional[float],
-    representative_log_mdot: float = -2.0,
+    representative_log_mdot_msun_yr: Optional[float] = None,
     width_frac: float = 0.35,
     min_points_across_width: float = 2.0,
 ) -> list:
@@ -168,23 +168,26 @@ def check_tau_grid_resolution(
     This check exists so that happens as an explicit warning instead, as
     early as ``build_grid()`` rather than only visible after a full fit.
 
-    The real fitted ``log_mdot`` isn't known until after fitting, so this
-    checks at ``representative_log_mdot`` instead -- deliberately a
+    The real fitted ``log_mdot_msun_yr`` isn't known until after fitting, so this
+    checks at ``representative_log_mdot_msun_yr`` (log10 solar masses per
+    year; by default 2 dex below :func:`~discotau.forward_model.typical_log_mdot`) instead -- deliberately a
     conservative, plausible-worst-case value (well below the prior's own
     centre, since a smaller accretion rate implies a smaller, harder-to-
     resolve mean lag), not the prior's central value, so this is more
     likely to over-warn than to miss a real risk.
     """
-    from .forward_model import lag_scaling
+    from .forward_model import lag_scaling, typical_log_mdot
 
     tau_grid = np.asarray(tau_grid)
     messages = []
     if M_BH is None:
         return messages
+    if representative_log_mdot_msun_yr is None:
+        representative_log_mdot_msun_yr = float(typical_log_mdot(M_BH)) - 2.0
     for name, d in bands.items():
         if d.get("lag_mode", "physical") != "physical":
             continue
-        tau_mean = float(lag_scaling(representative_log_mdot, d["wavelength"], M_BH))
+        tau_mean = float(lag_scaling(representative_log_mdot_msun_yr, d["wavelength"], M_BH))
         width = width_frac * tau_mean
         idx = max(min(int(np.searchsorted(tau_grid, tau_mean)), len(tau_grid) - 1), 1)
         local_dtau = float(tau_grid[idx] - tau_grid[idx - 1])
@@ -194,7 +197,7 @@ def check_tau_grid_resolution(
         if points_across < min_points_across_width:
             messages.append(
                 f"band {name!r} (wavelength {d['wavelength']:.0f} A): its expected response "
-                f"width (~{width:.4f} days at a conservative log_mdot={representative_log_mdot}) "
+                f"width (~{width:.4f} days at a conservative log_mdot_msun_yr={representative_log_mdot_msun_yr:.2f}) "
                 f"is only ~{points_across:.1f} tau_grid points wide there -- its response/light "
                 f"curve prediction may come out as a flat line. Try a larger n_tau, a higher "
                 f"tau_grid_power, or an explicit smaller tau_max in build_grid()."

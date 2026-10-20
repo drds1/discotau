@@ -8,13 +8,13 @@ custom response function is a one-line, discoverable operation rather than
 something you have to reverse-engineer from ``model.py``/``echofit.py``.
 
 The contract (unchanged, just named here): a response function is any
-callable ``psi(tau_grid, log_mdot, wavelength, inclination, M_BH, **kwargs)``
+callable ``psi(tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH, **kwargs)``
 returning an array the same shape as ``tau_grid`` that is causal
 (``psi[tau_grid < 0] == 0``) and area-normalised on ``tau_grid``
 (``trapz(psi, tau_grid) == 1``). ``transfer_coeffs``/``compute_echo`` and the
 plotting code never assume anything more specific than that.
 
-Only "physical"-mode responses (the ``log_mdot``/``inclination``-driven
+Only "physical"-mode responses (the ``log_mdot_msun_yr``/``inclination``-driven
 family) are covered here -- "free"-mode's ``tophat_response_free`` takes a
 different contract (an explicit ``tau_mean`` rather than the
 mass-accretion-rate-and-wavelength parameters) since its whole point is an
@@ -36,7 +36,7 @@ To add your own::
 
     from discotau.responses import register_response
 
-    def my_response(tau_grid, log_mdot, wavelength, inclination, M_BH, **kw):
+    def my_response(tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH, **kw):
         ...
         return psi
 
@@ -55,7 +55,7 @@ from .rippled_disc import rippled_disc_response
 class ResponseFunction(Protocol):
     """The response-function contract (see module docstring)."""
 
-    def __call__(self, tau_grid, log_mdot, wavelength, inclination, M_BH, **kwargs):
+    def __call__(self, tau_grid, log_mdot_msun_yr, wavelength, inclination, M_BH, **kwargs):
         ...  # pragma: no cover
 
 
