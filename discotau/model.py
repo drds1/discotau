@@ -462,7 +462,7 @@ def reverberation_model(
 
     # -- shared physical reprocessing parameters (physical-mode bands only) --
     if any(d["lag_mode"] == "physical" for d in bands.values()):
-        log_mdot_msun_yr = _param("log_mdot_msun_yr", dist.Normal(float(typical_log_mdot(M_BH)), LOG_MDOT_PRIOR_SD))
+        log_mdot_msun_yr = _param("log_mdot_msun_yr", dist.Normal(typical_log_mdot(M_BH), LOG_MDOT_PRIOR_SD))
         numpyro.deterministic("mdot_msun_yr", 10.0 ** log_mdot_msun_yr)
         if "inclination" in fixed_params:
             inclination = numpyro.deterministic(

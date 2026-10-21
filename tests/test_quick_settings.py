@@ -2,6 +2,7 @@
 once rather than fitting it (the fitting tier checks the same settings end to
 end): which sample sites exist, and the priors anchored to the data."""
 
+import jax
 import numpy as np
 import pytest
 from numpyro import handlers
@@ -232,3 +233,13 @@ def test_starts_are_centred_on_the_typical_rate(data):
         solve = echofit_mod._initialize_marginal_model(seed, kwargs, ef._init_strategy(1), ef.M_BH).param_info.z
         for z in (nuts, solve):
             assert -2.0 < float(z["log_mdot_msun_yr"]) - typical < 2.0
+
+
+def test_model_traces_inside_jit(data):
+    # Under jax.jit every jnp operation is staged out, even on a Python float
+    # M_BH, so the accretion-rate prior centre must stay a JAX expression: a
+    # float() of it broke every compiled potential (the direct solves and NUTS).
+    kwargs = _echofit(data)._model_kwargs()
+    loc = jax.jit(lambda: handlers.trace(handlers.seed(reverberation_model, 0)).get_trace(**kwargs)
+                  ["log_mdot_msun_yr"]["fn"].loc)()
+    assert float(loc) == pytest.approx(float(typical_log_mdot(1.0e8)))
