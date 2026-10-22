@@ -1357,7 +1357,7 @@ class EchoFit:
         def laplace_cov(vals, vecs):
             return (vecs / np.clip(vals, 1e-8, None)) @ vecs.T
 
-        def polish(result):
+        def polish(result, shared=None):
             # Damped, saddle-free Newton: step = (|H| + damping I)^-1 grad, in
             # H's eigenbasis, with the damping raised until the step lowers the
             # potential and relaxed after each success (Levenberg-Marquardt
@@ -1366,22 +1366,43 @@ class EchoFit:
             # fit: tiny or negative eigenvalues there make the undamped step
             # enormous, every backtracked fraction of it still went uphill, and
             # restarts stopped 4-110 sd short of the optimum along the ridge.
+            #
+            # The Hessian is reused across steps (a chord method) and refreshed
+            # only when a step fails or progress stalls: L-BFGS has already
+            # brought the restart close to the peak, and each finite-difference
+            # Hessian costs 2-4 gradients per parameter (most of the solve's
+            # time on many light curves: 83 per cent of a 3.5 h NGC 5548 fit).
+            # ``shared``: an already polished optimum this restart started next
+            # to; its Hessian is used throughout and the restart only counts as
+            # reaching it if the Newton steps converge there.
             z, f = np.asarray(result.x, dtype=np.float64), float(result.fun)
             if not np.isfinite(f):
                 return None
-            # Each restart's first Hessian from its own L-BFGS scale: carrying the
-            # previous restart's eigenvectors (another point) over left one
-            # restart's Hessian degenerate (a clipped eigenvalue, a 1e4 sd
-            # "posterior" width) on a ugriz synthetic set.
-            scale["sd"], scale["basis"] = _lbfgs_sd(result), None
-            vals, vecs = curvature(z)
-            n_newton, offset_in_sd, damping = 0, np.inf, 0.0
-            for _ in range(20):
+            if shared is not None:
+                vals, vecs = shared["eigvals"], shared["vecs"]
+            else:
+                # Each restart's first Hessian from its own L-BFGS scale: carrying the
+                # previous restart's eigenvectors (another point) over left one
+                # restart's Hessian degenerate (a clipped eigenvalue, a 1e4 sd
+                # "posterior" width) on a ugriz synthetic set.
+                scale["sd"], scale["basis"] = _lbfgs_sd(result), None
+                vals, vecs = curvature(z)
+            n_newton, offset_in_sd, damping, since_refresh = 0, np.inf, 0.0, 0
+            previous = np.inf
+            for _ in range(40):
                 grad = objective(z)[1]
                 cov = laplace_cov(vals, vecs)
                 offset_in_sd = float(np.max(np.abs(cov @ grad) / np.sqrt(np.diag(cov))))
                 if offset_in_sd < 0.01:
                     break
+                stalled = since_refresh >= 5 or offset_in_sd > 0.7 * previous
+                if stalled and since_refresh > 0:
+                    if shared is not None:
+                        return "unshared"
+                    vals, vecs = curvature(z)
+                    since_refresh = 0
+                    continue
+                previous = offset_in_sd
                 grad_eig = vecs.T @ grad
                 floor = 1e-6 * float(np.max(np.abs(vals)))
                 for _ in range(15):
@@ -1391,21 +1412,51 @@ class EchoFit:
                         break
                     damping = max(10.0 * damping, floor)
                 else:
-                    break
+                    if shared is not None or since_refresh == 0:
+                        break
+                    vals, vecs = curvature(z)  # stale Hessian: refresh and retry
+                    since_refresh = 0
+                    continue
                 z, f = z - step, f_new
                 damping /= 10.0
-                vals, vecs = curvature(z)
                 n_newton += 1
+                since_refresh += 1
+            if shared is not None:
+                cov = laplace_cov(vals, vecs)
+                offset_in_sd = float(np.max(np.abs(cov @ objective(z)[1]) / np.sqrt(np.diag(cov))))
+                if offset_in_sd >= 0.01:
+                    return "unshared"
+                return dict(z=z, f=f, eigvals=vals, vecs=vecs, cov=cov, n_newton=n_newton,
+                            offset_in_sd=offset_in_sd, curvature_corrections=shared["curvature_corrections"],
+                            shared_hessian=True)
             # Judge convergence on the posterior-scale curvature: tiny ripples in
             # the potential can make the pointwise Hessian claim a huge remaining
             # step where the peak has in fact been reached.
             vals, vecs = curvature(z, posterior_scale=True)
             cov = laplace_cov(vals, vecs)
             offset_in_sd = float(np.max(np.abs(cov @ objective(z)[1]) / np.sqrt(np.diag(cov))))
-            return dict(z=z, f=f, eigvals=vals, cov=cov, n_newton=n_newton, offset_in_sd=offset_in_sd,
-                        curvature_corrections=corrections["n"])
+            return dict(z=z, f=f, eigvals=vals, vecs=vecs, cov=cov, n_newton=n_newton, offset_in_sd=offset_in_sd,
+                        curvature_corrections=corrections["n"], shared_hessian=False)
 
-        polished = [polish(r) for r in results]
+        # Best first, so a restart that ends next to an optimum already polished
+        # (within a posterior sd of it) is polished with that optimum's Hessian:
+        # only restarts landing somewhere new pay for Hessians of their own.
+        polished = [None] * len(results)
+        own = []
+        for i in sorted(range(len(results)), key=lambda i: results[i].fun if np.isfinite(results[i].fun) else np.inf):
+            near = None
+            for q in own:
+                sd_q = np.sqrt(np.diag(q["cov"]))
+                if np.max(np.abs(np.asarray(results[i].x) - q["z"]) / sd_q) < 1.0:
+                    near = q
+                    break
+            out = polish(results[i], shared=near) if near is not None else None
+            if out is None or out == "unshared":
+                out = polish(results[i])
+                if out is not None:
+                    own.append(out)
+            polished[i] = out
+        timings["hessians_shared"] = int(sum(1 for q in polished if q is not None and q["shared_hessian"]))
 
         def laplace_log_evidence(p):
             # -U + 1/2 ln det(cov) (+ a constant): the posterior mass near the
