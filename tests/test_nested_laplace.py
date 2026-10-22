@@ -208,3 +208,19 @@ def test_nested_laplace_survives_grid_points_with_a_non_finite_gradient(monkeypa
     assert np.all(np.isfinite(draws))
     # s's posterior is nearly its N(0, 1) prior; the points beyond -2.5 hold ~0.6 per cent of it.
     assert abs(np.mean(draws)) < 0.2 and 0.8 < np.std(draws) < 1.2
+
+
+def test_draw_chunk_keeps_vmapped_scoring_within_its_memory_budget():
+    # A fixed chunk of 250 draws held ~20 GB of marginal factorisations at
+    # ~1150 modes on ~3000 points and was killed at 31 GB; small problems keep
+    # the full chunk.
+    def kwargs(n_per_band, n_bands, n_freq):
+        bands = {f"b{i}": {"t": np.zeros(n_per_band)} for i in range(n_bands)}
+        return {"bands": bands, "freqs": np.zeros(n_freq)}
+
+    small = nested_laplace._draw_chunk(kwargs(100, 2, 60))
+    large = nested_laplace._draw_chunk(kwargs(515, 6, 1150))
+    assert small == 250
+    assert 1 <= large < 25
+    n, p = 6 * 515, 2 * 1150 + 24
+    assert large * 16.0 * (n + p) * p <= nested_laplace.DRAW_BATCH_BYTES
