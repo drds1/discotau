@@ -168,7 +168,9 @@ class GramCache:
 
     def _value(self, a, b, s, j):
         P, cvec, yy, logdetD, _ = self._assemble(a, b, s, j)
-        cf = sla.cho_factor(P, lower=True, check_finite=False)
+        cf = _cholesky(P)
+        if cf is None:
+            return np.nan
         u = sla.cho_solve(cf, cvec, check_finite=False)
         logdetP = 2.0 * np.sum(np.log(np.diag(cf[0])))
         return -0.5 * (yy - cvec @ u + logdetP + logdetD + self.N * np.log(2.0 * np.pi))
@@ -181,7 +183,13 @@ class GramCache:
         a, b, s, j = (np.asarray(x, dtype=np.float64) for x in (a, b, s, j))
         K = self.K
         P, cvec, yy, logdetD, parts = self._assemble(a, b, s, j)
-        cf = sla.cho_factor(P, lower=True, check_finite=False)
+        cf = _cholesky(P)
+        if cf is None:
+            # Not numerically positive definite (an absurd trial point, e.g. a
+            # line search stepping to an enormous driver amplitude): report a
+            # non-finite likelihood, which every solver already treats as a
+            # point to back away from, instead of raising inside the callback.
+            return np.nan, np.zeros_like(a), np.zeros_like(b), np.zeros_like(s), np.zeros_like(j)
         u = sla.cho_solve(cf, cvec, check_finite=False)
         logdetP = 2.0 * np.sum(np.log(np.diag(cf[0])))
         L = -0.5 * (yy - cvec @ u + logdetP + logdetD + self.N * np.log(2.0 * np.pi))
@@ -226,7 +234,11 @@ class GramCache:
         self.build()
         a, b, s, j = (np.asarray(x, dtype=np.float64) for x in (a, b, s, j))
         P, cvec, _, _, _ = self._assemble(a, b, s, j)
-        Lc = np.linalg.cholesky(P)
+        cf = _cholesky(P)
+        if cf is None:
+            nan = np.full(self.p, np.nan)
+            return nan, np.full((self.p, self.p), np.nan)
+        Lc = np.tril(cf[0])
         mean = sla.cho_solve((Lc, True), cvec, check_finite=False)
         return mean, Lc
 
@@ -292,6 +304,17 @@ class GramCache:
     def conditional_fn(self):
         self.loglik_fn()
         return self._jax_fns[1]
+
+
+def _cholesky(P):
+    """``cho_factor`` of ``P``, or None if it is not numerically positive
+    definite or not finite."""
+    if not np.all(np.isfinite(P)):
+        return None
+    try:
+        return sla.cho_factor(P, lower=True, check_finite=False)
+    except np.linalg.LinAlgError:
+        return None
 
 
 def _r(a, b, X):

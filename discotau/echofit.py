@@ -801,8 +801,9 @@ class EchoFit:
         if not init_from_optimum:
             from numpyro.infer import init_to_uniform
 
-            return _shifted_mdot_init(strategy=self._init_strategy(num_chains) or init_to_uniform,
-                                      shift=float(typical_log_mdot(self.M_BH)))
+            # No accretion-rate site without M_BH (free lags only): nothing to shift.
+            shift = 0.0 if self.M_BH is None else float(typical_log_mdot(self.M_BH))
+            return _shifted_mdot_init(strategy=self._init_strategy(num_chains) or init_to_uniform, shift=shift)
         if getattr(self, "optimum", None) is None:
             raise ValueError("fit(init_from_optimum=True) needs .optimise() to have been run first.")
         if num_chains != 1:
