@@ -115,9 +115,12 @@ class GramCache:
                 h.append(PhiD.T @ yt)
                 hE.append((E * d[:, None]).T @ yt)
                 yy.append(float(yt @ (d * yt)))
+            G = np.stack(G)
+            K = self.K
             blocks.append(dict(name=name, e2=e2, U=U, projected=projected, e_idx=np.array(idx),
-                               G=np.stack(G), GE=np.stack(GE), EE=np.stack(EE), h=np.stack(h), hE=np.stack(hE),
-                               yy=np.array(yy)))
+                               G=G, Gss=np.ascontiguousarray(G[:, :K, :K]), Gsc=np.ascontiguousarray(G[:, :K, K:]),
+                               Gcc=np.ascontiguousarray(G[:, K:, K:]),
+                               GE=np.stack(GE), EE=np.stack(EE), h=np.stack(h), hE=np.stack(hE), yy=np.array(yy)))
         self._blocks = blocks
         self.N = int(sum(len(b["e2"]) for b in blocks))
         return self
@@ -138,19 +141,42 @@ class GramCache:
         return q, dq_ds, dq_dj
 
     def _assemble(self, a, b, s, j):
+        """P (the linear parameters' conditional precision), the data
+        projections, and per-block pieces the gradient reuses. R^T G R is
+        accumulated as four K x K blocks: with G R's blocks
+        GR_sS = G_ss a - G_sc b, GR_sC = G_ss b + G_sc a (and cos rows alike),
+        P_SS = a GR_sS - b GR_cS, P_SC = a GR_sC - b GR_cC,
+        P_CS = b GR_sS + a GR_cS, P_CC = b GR_sC + a GR_cC
+        (a, b scaling columns, then rows), in place."""
         K, p = self.K, self.p
         P = np.zeros((p, p))
         cvec = np.zeros(p)
         yy = logdetD = 0.0
         parts = []
+        PSS, PSC, PCS, PCC = P[:K, :K], P[:K, K:2 * K], P[K:2 * K, :K], P[K:2 * K, K:2 * K]
+        tmp = np.empty((K, K))
         for k, blk in enumerate(self._blocks):
             q, dq_ds, dq_dj = self._coeffs(blk, s[k], j[k])
-            G = np.tensordot(q, blk["G"], 1)
+            if blk["projected"]:
+                Gss, Gsc, Gcc = (np.tensordot(q, blk[n], 1) for n in ("Gss", "Gsc", "Gcc"))
+            else:
+                Gss, Gsc, Gcc = blk["Gss"][0], blk["Gsc"][0], blk["Gcc"][0]
             GE = np.tensordot(q, blk["GE"], 1)
             ak, bk = a[k], b[k]
-            # G R: column scaling of G's (S, C) columns.
-            GR = np.hstack([G[:, :K] * ak - G[:, K:] * bk, G[:, :K] * bk + G[:, K:] * ak])
-            P[:2 * K, :2 * K] += _rt(ak, bk, GR)
+            Gcs = Gsc.T
+            GR_sS = Gss * ak - Gsc * bk
+            GR_sC = Gss * bk + Gsc * ak
+            GR_cS = Gcs * ak - Gcc * bk
+            GR_cC = Gcs * bk + Gcc * ak
+            ac, bc = ak[:, None], bk[:, None]
+            np.multiply(GR_sS, ac, out=tmp); PSS += tmp
+            np.multiply(GR_cS, bc, out=tmp); PSS -= tmp
+            np.multiply(GR_sC, ac, out=tmp); PSC += tmp
+            np.multiply(GR_cC, bc, out=tmp); PSC -= tmp
+            np.multiply(GR_sS, bc, out=tmp); PCS += tmp
+            np.multiply(GR_cS, ac, out=tmp); PCS += tmp
+            np.multiply(GR_sC, bc, out=tmp); PCC += tmp
+            np.multiply(GR_cC, ac, out=tmp); PCC += tmp
             RtGE = _rt(ak, bk, GE)
             ei = blk["e_idx"]
             P[:2 * K, ei] += RtGE
@@ -162,7 +188,7 @@ class GramCache:
             yy += float(q @ blk["yy"])
             sig2 = s[k] ** 2 * blk["e2"] + j[k] ** 2
             logdetD += float(np.sum(np.log(sig2)))
-            parts.append(dict(q=q, dq_ds=dq_ds, dq_dj=dq_dj, G=G, GE=GE, GR=GR, h=h, sig2=sig2))
+            parts.append(dict(q=q, dq_ds=dq_ds, dq_dj=dq_dj, GR=(GR_sS, GR_sC, GR_cS, GR_cC), GE=GE, h=h, sig2=sig2))
         P[np.diag_indices(p)] += 1.0
         return P, cvec, yy, logdetD, parts
 
@@ -201,14 +227,21 @@ class GramCache:
         for k, (blk, pt) in enumerate(zip(self._blocks, parts)):
             ei = blk["e_idx"]
             Wet = W[ei, :2 * K]
-            GR, GE, h = pt["GR"], pt["GE"], pt["h"]
-            # dL/dR = h u^T - G R W_tt - G_E W_et: diagonals of its four K x K sub-blocks.
-            def dblk(r0, c0):
-                rows = slice(r0, r0 + K)
-                cols = slice(c0, c0 + K)
-                return (h[rows] * ut[cols] - np.einsum("kj,jk->k", GR[rows], Wtt[:, cols])
+            (GR_sS, GR_sC, GR_cS, GR_cC), GE, h = pt["GR"], pt["GE"], pt["h"]
+            # dL/dR = h u^T - G R W_tt - G_E W_et: diagonals of its four K x K
+            # sub-blocks. (G R W)_kk over (row r, col c) = sum over the S and C
+            # halves of GR_rS[k] . W_S,c[:, k] + GR_rC[k] . W_C,c[:, k].
+            WS, WC = Wtt[:K], Wtt[K:]
+
+            def dblk(GR_rS, GR_rC, rows, cols):
+                return (h[rows] * ut[cols]
+                        - np.einsum("kj,jk->k", GR_rS, WS[:, cols]) - np.einsum("kj,jk->k", GR_rC, WC[:, cols])
                         - np.einsum("kj,jk->k", GE[rows], Wet[:, cols]))
-            sS, cC, sC, cS = dblk(0, 0), dblk(K, K), dblk(0, K), dblk(K, 0)
+            sl_s, sl_c = slice(0, K), slice(K, 2 * K)
+            sS = dblk(GR_sS, GR_sC, sl_s, sl_s)
+            sC = dblk(GR_sS, GR_sC, sl_s, sl_c)
+            cS = dblk(GR_cS, GR_cC, sl_c, sl_s)
+            cC = dblk(GR_cS, GR_cC, sl_c, sl_c)
             da[k] = sS + cC
             db[k] = sC - cS
             if blk["projected"]:
@@ -257,16 +290,25 @@ class GramCache:
         import jax
         import jax.numpy as jnp
 
-        def cb(fn, shapes, *args):
+        def cb(fn, shapes, *args, batched=False):
+            # batched: the host function takes leading batch dimensions itself
+            # (one call per vmapped batch, e.g. the nested solve's draws).
             try:
-                return jax.pure_callback(fn, shapes, *args, vmap_method="sequential")
+                return jax.pure_callback(fn, shapes, *args,
+                                         vmap_method="broadcast_all" if batched else "sequential")
             except TypeError:  # jax < 0.4.34
-                return jax.pure_callback(fn, shapes, *args, vectorized=False)
+                return jax.pure_callback(fn, shapes, *args, vectorized=batched)
 
         def value_host(a, b, s, j):
             self.build()
-            v = self._value(*(np.asarray(x, dtype=np.float64) for x in (a, b, s, j)))
-            return np.asarray(v, dtype=np.float32)
+            a, b, s, j = (np.asarray(x, dtype=np.float64) for x in (a, b, s, j))
+            if a.ndim == 2:
+                return np.asarray(self._value(a, b, s, j), dtype=np.float32)
+            batch = a.shape[:-2]
+            a, b = a.reshape((-1,) + a.shape[-2:]), b.reshape((-1,) + b.shape[-2:])
+            s, j = s.reshape((-1, s.shape[-1])), j.reshape((-1, j.shape[-1]))
+            out = np.array([self._value(*x) for x in zip(a, b, s, j)], dtype=np.float32)
+            return out.reshape(batch)
 
         def vg_host(a, b, s, j):
             L, da, db, ds, dj = self.value_and_grad(a, b, s, j)
@@ -275,7 +317,7 @@ class GramCache:
 
         @jax.custom_vjp
         def loglik(a, b, s, j):
-            return cb(value_host, jax.ShapeDtypeStruct((), jnp.float32), a, b, s, j)
+            return cb(value_host, jax.ShapeDtypeStruct((), jnp.float32), a, b, s, j, batched=True)
 
         def fwd(a, b, s, j):
             shapes = (jax.ShapeDtypeStruct((), jnp.float32), jax.ShapeDtypeStruct(a.shape, jnp.float32),
