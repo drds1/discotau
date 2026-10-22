@@ -207,3 +207,24 @@ def test_nuts_started_from_the_direct_solve_runs_and_agrees(data):
     lm = np.asarray(ef.samples["log_mdot_msun_yr"])
     assert abs(float(lm.mean()) - lm_opt) < 3 * max(sd_opt, float(lm.std()))
     assert int(np.asarray(ef.extra_fields["diverging"]).sum()) < 15
+
+
+def test_auto_uses_gram_only_with_enough_points_per_linear_parameter(data, monkeypatch):
+    # 3 x 40 points against 2 x 12 modes + 3 offsets + 3 backgrounds = 30 linear
+    # parameters: 4 points each.
+    ef = _echofit(data)
+    params = _params(ef, 7)
+    monkeypatch.setattr(model, "MARGINAL_METHOD", "auto")
+    for ratio, expect_qr in ((1.2, False), (3.0, False), (5.0, True)):
+        calls = []
+        original = model._marginal_solve
+
+        def spy(*a, **k):
+            calls.append(1)
+            return original(*a, **k)
+
+        monkeypatch.setattr(model, "_marginal_solve", spy)
+        monkeypatch.setattr(model, "GRAM_MIN_POINTS_PER_PARAMETER", ratio)
+        log_density(model.reverberation_model, (), ef._model_kwargs(), params)
+        assert bool(calls) == expect_qr
+        monkeypatch.setattr(model, "_marginal_solve", original)

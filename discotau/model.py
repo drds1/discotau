@@ -682,8 +682,16 @@ def _marginal_solve(arrays, prior_scale, n_off, n_bg, layout, bg_layout, need_th
 # Testing hook: True makes _linear_marginal always factorise in parameter space.
 _FORCE_PARAMETER_SPACE = False
 # "gram": the marginal likelihood from precomputed Gram matrices (discotau.gram)
-# whenever EchoFit supplies them; "qr": always _marginal_solve's QR.
-MARGINAL_METHOD = "gram"
+# whenever EchoFit supplies them; "qr": always _marginal_solve's QR; "auto": the
+# Gram path when there are at least GRAM_MIN_POINTS_PER_PARAMETER data points
+# per linear parameter, else the QR. The QR costs ~(N + p) min(N, p)^2 (it works
+# in data space when N < p) and the Gram path ~p^3 whatever N is, so the Gram path
+# wins on long, well-sampled light curves and loses with few points: on simulated
+# sets (Kaggle CPU): potential and gradient 2-3x faster at N/p ~ 1.8 and 3.3,
+# whole solves 2x faster at N/p ~ 3.5 (Fairall 9's cadence), and 3x slower at
+# N/p ~ 0.6 (a 3-day cadence), where the QR's data-space form is cheap.
+MARGINAL_METHOD = "auto"
+GRAM_MIN_POINTS_PER_PARAMETER = 1.2
 
 
 def _gram_inputs(blocks, prior_scale):
@@ -783,9 +791,10 @@ def _linear_marginal(blocks, prior_scale, draw_linear, gram_cache=None):
     (``bg_cols``, ``(n, K)``; ``coefficient = bg_sd * theta``).
 
     With a ``gram_cache`` (:class:`discotau.gram.GramCache`, which
-    ``EchoFit`` supplies) the likelihood is evaluated from precomputed Gram
-    matrices in float64, independent of the number of data points; otherwise,
-    or with ``MARGINAL_METHOD = "qr"``, by the QR of :func:`_marginal_solve`.
+    ``EchoFit`` supplies) the likelihood can be evaluated from precomputed Gram
+    matrices in float64, independent of the number of data points; otherwise
+    by the QR of :func:`_marginal_solve`. ``MARGINAL_METHOD`` chooses (see
+    its comment).
     """
     n_freq = prior_scale.shape[0]
     offset_names = [b["name"] for b in blocks if b["known_offset"] is None]
@@ -809,7 +818,11 @@ def _linear_marginal(blocks, prior_scale, draw_linear, gram_cache=None):
     bg_layout = tuple((bg_start[b["name"]], b["bg_cols"].shape[1]) if b.get("bg_cols") is not None else None
                       for b in blocks)
 
-    use_gram = (gram_cache is not None and MARGINAL_METHOD == "gram" and n_off == len(blocks)
+    n_data = sum(int(b["y"].shape[0]) for b in blocks)
+    p_linear = 2 * n_freq + n_off + n_bg
+    wanted = MARGINAL_METHOD == "gram" or (
+        MARGINAL_METHOD == "auto" and n_data >= GRAM_MIN_POINTS_PER_PARAMETER * p_linear)
+    use_gram = (gram_cache is not None and wanted and n_off == len(blocks)
                 and [b["name"] for b in blocks] == gram_cache.names and not _FORCE_PARAMETER_SPACE)
     if use_gram:
         a, bb, s, j = _gram_inputs(blocks, prior_scale)
