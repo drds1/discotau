@@ -230,6 +230,12 @@ class GramCache:
         mean = sla.cho_solve((Lc, True), cvec, check_finite=False)
         return mean, Lc
 
+    def precision(self, a, b, s, j):
+        """The linear parameters' conditional precision ``P`` (float64)."""
+        self.build()
+        a, b, s, j = (np.asarray(x, dtype=np.float64) for x in (a, b, s, j))
+        return self._assemble(a, b, s, j)[0]
+
     # ------------------------------------------------------------ JAX
     def loglik_fn(self):
         """JAX function ``(a, b, s, j) -> log likelihood`` (float32), with the

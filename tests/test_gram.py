@@ -132,3 +132,78 @@ def test_error_model_weight_family_is_low_rank_and_exact(data):
         q, _, _ = cache._coeffs(blk, s, j)
         w_exact = 1.0 / (s ** 2 * e2 + j ** 2)
         assert np.allclose(blk["U"] @ q, w_exact, rtol=1e-8)
+
+
+def _fake_optimum(ef, rng=6):
+    """A point and an identity Laplace covariance standing in for optimise()'s
+    (the quick tier never solves)."""
+    from jax.flatten_util import ravel_pytree
+    from numpyro.infer import init_to_value
+    from discotau.echofit import _initialize_marginal_model
+
+    params = _params(ef, rng)
+    marg = dict(ef._model_kwargs(), marginalise_linear=True)
+    z = _initialize_marginal_model(0, marg, init_to_value(values=params), ef.M_BH).param_info.z
+    ef.optimum = {k: np.asarray(v) for k, v in params.items()}
+    ef.laplace_covariance = np.eye(ravel_pytree(z)[0].size)
+    return params
+
+
+@pytest.mark.parametrize("marginalise", [False, True])
+def test_optimum_inverse_mass_covers_every_site_and_is_positive_definite(data, marginalise):
+    ef = _echofit(data, driver=True, error_model=("g",))
+    ef.marginalise_linear = marginalise
+    _fake_optimum(ef)
+    (names, M), = ef._optimum_inverse_mass().items()
+    M = np.asarray(M, dtype=np.float64)
+    assert list(names) == sorted(names)
+    assert np.allclose(M, M.T)
+    assert np.linalg.eigvalsh(M).min() > 0
+    assert ("S_raw" in names) == (not marginalise)
+
+
+def test_optimum_inverse_mass_linear_block_is_the_conditional_covariance(data):
+    # The S_raw/C_raw block is P^-1 from the Gram cache (unit-normal sites, no rescaling).
+    import discotau.model as m
+    from numpyro import handlers
+
+    ef = _echofit(data)
+    ef.marginalise_linear = False
+    params = _fake_optimum(ef)
+    (names, M), = ef._optimum_inverse_mass().items()
+    marg = dict(ef._model_kwargs(), marginalise_linear=True)
+    grabbed = {}
+    original = m._linear_marginal
+
+    def grab(blocks, prior_scale, draw_linear, gram_cache=None):
+        grabbed["x"] = m._gram_inputs(blocks, prior_scale)
+        return original(blocks, prior_scale, draw_linear, gram_cache)
+
+    m._linear_marginal = grab
+    try:
+        handlers.trace(handlers.substitute(handlers.seed(m.reverberation_model, 0), params)).get_trace(**marg)
+    finally:
+        m._linear_marginal = original
+    from numpyro.infer import init_to_value
+    from numpyro.infer.util import initialize_model
+
+    K = len(ef.freqs)
+    Pinv = np.linalg.inv(marg["gram_cache"].precision(*grabbed["x"]))
+    z = initialize_model(jax.random.PRNGKey(0), m.reverberation_model, model_kwargs=ef._model_kwargs(),
+                         init_strategy=init_to_value(values=ef._optimum_init_values()), validate_grad=False).param_info.z
+    start = sum(int(np.size(z[n])) for n in names[:list(names).index("C_raw")])
+    block = np.asarray(M, dtype=np.float64)[start:start + K, start:start + K]
+    assert np.allclose(block, Pinv[K:2 * K, K:2 * K], rtol=1e-3, atol=1e-6 * np.abs(Pinv).max())
+
+
+@pytest.mark.fit
+def test_nuts_started_from_the_direct_solve_runs_and_agrees(data):
+    ef = _echofit(data)
+    ef.optimise(method="laplace", num_restarts=1, num_samples=100)
+    lm_opt = float(np.mean(ef.samples["log_mdot_msun_yr"]))
+    sd_opt = float(np.std(ef.samples["log_mdot_msun_yr"]))
+    ef.fit(num_warmup=150, num_samples=150, init_from_optimum=True, mass_from_optimum=True,
+           progress_bar=False, generate_report=False)
+    lm = np.asarray(ef.samples["log_mdot_msun_yr"])
+    assert abs(float(lm.mean()) - lm_opt) < 3 * max(sd_opt, float(lm.std()))
+    assert int(np.asarray(ef.extra_fields["diverging"]).sum()) < 15

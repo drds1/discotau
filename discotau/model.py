@@ -686,6 +686,19 @@ _FORCE_PARAMETER_SPACE = False
 MARGINAL_METHOD = "gram"
 
 
+def _gram_inputs(blocks, prior_scale):
+    """Each block's per-mode ``(a, b) = gain * prior_sd * (A, B)`` (1 and 0 for a
+    driver light curve), error scale and jitter: the arguments of
+    :meth:`discotau.gram.GramCache.loglik_fn`."""
+    n_freq = prior_scale.shape[0]
+    ones, zeros = jnp.ones(n_freq), jnp.zeros(n_freq)
+    a = jnp.stack([b["gain"] * prior_scale * (ones if b["A"] is None else b["A"]) for b in blocks])
+    bb = jnp.stack([b["gain"] * prior_scale * (zeros if b["B"] is None else b["B"]) for b in blocks])
+    s = jnp.stack([jnp.asarray(b["error"][0], dtype=jnp.float32) for b in blocks])
+    j = jnp.stack([jnp.asarray(b["error"][1], dtype=jnp.float32) for b in blocks])
+    return a, bb, s, j
+
+
 def _design_rows(arrays, prior_scale, n_off, n_bg, layout, bg_layout):
     """Each block's design-matrix rows over every linear parameter, as
     :func:`_marginal_solve` builds them (for the predictions of the draws)."""
@@ -799,11 +812,7 @@ def _linear_marginal(blocks, prior_scale, draw_linear, gram_cache=None):
     use_gram = (gram_cache is not None and MARGINAL_METHOD == "gram" and n_off == len(blocks)
                 and [b["name"] for b in blocks] == gram_cache.names and not _FORCE_PARAMETER_SPACE)
     if use_gram:
-        ones, zeros = jnp.ones(n_freq), jnp.zeros(n_freq)
-        a = jnp.stack([b["gain"] * prior_scale * (ones if b["A"] is None else b["A"]) for b in blocks])
-        bb = jnp.stack([b["gain"] * prior_scale * (zeros if b["B"] is None else b["B"]) for b in blocks])
-        s = jnp.stack([jnp.asarray(b["error"][0], dtype=jnp.float32) for b in blocks])
-        j = jnp.stack([jnp.asarray(b["error"][1], dtype=jnp.float32) for b in blocks])
+        a, bb, s, j = _gram_inputs(blocks, prior_scale)
         numpyro.factor("linear_marginal_loglik", gram_cache.loglik_fn()(a, bb, s, j))
         if not draw_linear:
             return

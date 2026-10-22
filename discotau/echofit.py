@@ -946,6 +946,7 @@ class EchoFit:
         progress_bar: bool = True,
         generate_report: bool = True,
         init_from_optimum: bool = False,
+        mass_from_optimum: bool = False,
     ):
         """Run NUTS and store the posterior samples on ``self.samples``.
 
@@ -982,6 +983,14 @@ class EchoFit:
             first) rather than the data-anchored default guess. Single-chain
             only, for the same reason as ``_init_strategy``'s: identical
             starts defeat multi-chain R-hat checks.
+        mass_from_optimum : bool
+            Start NUTS's (dense) inverse mass matrix from the direct solve
+            instead of the identity: the Laplace covariance of the nonlinear
+            parameters and, for the sampled model, the exact conditional
+            covariance of the linear ones at the optimum
+            (:meth:`_optimum_inverse_mass`). Warmup still adapts it; with the
+            right geometry from the first step it needs far less of it. Call
+            ``.optimise()`` first; not available with ``title=``.
 
         report_every : int, optional
             Only used on the checkpointed path. If given, ``report.html``
@@ -1015,6 +1024,7 @@ class EchoFit:
                 num_warmup=num_warmup, num_samples=num_samples, num_chains=num_chains,
                 max_tree_depth=max_tree_depth, chain_method=chain_method, progress_bar=progress_bar,
                 init_strategy=self._fit_init_strategy(num_chains, init_from_optimum), dense_mass=dense_mass,
+                inverse_mass_matrix=self._optimum_inverse_mass() if mass_from_optimum else None,
             )
             self._samples_by_chain = self._add_linear_draws(
                 self.mcmc.get_samples(group_by_chain=True), rng_seed
@@ -1026,6 +1036,8 @@ class EchoFit:
             return self
 
         # -- title given: checkpointed/resumable single-chain path --
+        if mass_from_optimum:
+            raise ValueError("fit(mass_from_optimum=True) is not supported with title= (checkpointed runs).")
         if num_chains != 1:
             warnings.warn(
                 f"EchoFit(title=...) checkpointing only supports num_chains=1; "
@@ -1727,6 +1739,94 @@ class EchoFit:
             if name in trace and name not in self.fixed_params:
                 values[name] = np.asarray(trace[name]["value"])
         return values
+
+    def _optimum_inverse_mass(self) -> dict:
+        """A starting inverse mass matrix for NUTS from the direct solve,
+        ``{tuple of site names: matrix}`` in NumPyro's flattened unconstrained
+        coordinates (sites in sorted order): the Laplace covariance for the
+        nonlinear parameters and, when the fit samples the linear ones, their
+        exact conditional covariance ``P^-1`` at the optimum (Gram cache),
+        scaled to each offset's and background's prior width. Cross terms
+        between the two blocks are left at zero. Warmup still adapts it; it
+        only starts from the solve's geometry instead of the identity."""
+        from jax.flatten_util import ravel_pytree
+        from numpyro import handlers
+        from numpyro.infer import init_to_value
+        from numpyro.infer.util import initialize_model
+
+        if getattr(self, "laplace_covariance", None) is None:
+            raise ValueError("fit(mass_from_optimum=True) needs .optimise() to have been run first.")
+        values = self._optimum_init_values()
+        kw = self._model_kwargs()
+        nuts_z = initialize_model(jax.random.PRNGKey(0), reverberation_model, model_kwargs=kw,
+                                  init_strategy=init_to_value(values=values), validate_grad=False).param_info.z
+        marg_kw = dict(kw, marginalise_linear=True)
+        marg_z = _initialize_marginal_model(0, marg_kw, init_to_value(values=values), self.M_BH).param_info.z
+
+        def layout(z):
+            out, i = {}, 0
+            for name in sorted(z):
+                n = int(np.size(z[name]))
+                out[name] = (i, n)
+                i += n
+            return out, i
+
+        nuts_lay, D = layout(nuts_z)
+        marg_lay, _ = layout(marg_z)
+        M = np.zeros((D, D))
+        cov = np.asarray(self.laplace_covariance, dtype=np.float64)
+        shared = [n for n in nuts_lay if n in marg_lay]
+        for a in shared:
+            ia, na = nuts_lay[a]
+            ja, _ = marg_lay[a]
+            for b in shared:
+                ib, nb = nuts_lay[b]
+                jb, _ = marg_lay[b]
+                M[ia:ia + na, ib:ib + nb] = cov[ja:ja + na, jb:jb + nb]
+        linear = [n for n in nuts_lay if n not in marg_lay]
+        if linear:
+            cache = marg_kw["gram_cache"]
+            grabbed = {}
+            original = _model._linear_marginal
+
+            def grab(blocks, prior_scale, draw_linear, gram_cache=None):
+                grabbed["inputs"] = _model._gram_inputs(blocks, prior_scale)
+                grabbed["blocks"] = blocks
+                return original(blocks, prior_scale, draw_linear, gram_cache)
+
+            _model._linear_marginal = grab
+            try:
+                handlers.trace(handlers.substitute(handlers.seed(reverberation_model, 0), values)).get_trace(**marg_kw)
+            finally:
+                _model._linear_marginal = original
+            Pinv = np.linalg.inv(cache.precision(*grabbed["inputs"]))
+            K = len(self.freqs)
+            # Gram layout: S_raw, C_raw, one offset per light curve, then backgrounds.
+            idx, scale, bg0 = {"S_raw": np.arange(K), "C_raw": np.arange(K, 2 * K)}, {}, 2 * K + cache.n_off
+            for i, b in enumerate(grabbed["blocks"]):
+                idx[f"C_{b['name']}"] = np.array([2 * K + i])
+                scale[f"C_{b['name']}"] = float(b["offset_sd"])
+                if b.get("bg_cols") is not None:
+                    kb = b["bg_cols"].shape[1]
+                    idx[f"bg_{b['name']}"] = np.arange(bg0, bg0 + kb)
+                    scale[f"bg_{b['name']}"] = float(b["bg_sd"])
+                    bg0 += kb
+            for a in linear:
+                ia, na = nuts_lay[a]
+                if a not in idx:
+                    M[ia:ia + na, ia:ia + na] = np.eye(na)
+                    continue
+                for b in linear:
+                    if b not in idx:
+                        continue
+                    ib, nb = nuts_lay[b]
+                    M[ia:ia + na, ib:ib + nb] = scale.get(a, 1.0) * scale.get(b, 1.0) * Pinv[np.ix_(idx[a], idx[b])]
+        for n in nuts_lay:  # anything neither block covers (none expected)
+            i, k = nuts_lay[n]
+            if not M[i:i + k, i:i + k].any():
+                M[i:i + k, i:i + k] = np.eye(k)
+        M = 0.5 * (M + M.T)
+        return {tuple(sorted(nuts_lay)): jnp.asarray(M, dtype=jnp.float32)}
 
     def _linear_draw_sites(self) -> list:
         """Site names :meth:`_add_linear_draws` adds."""
