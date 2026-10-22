@@ -672,7 +672,37 @@ class EchoFit:
             inclination_prior=self.inclination_prior,
             type1_opening_deg=self.type1_opening_deg,
             type1_width_deg=self.type1_width_deg,
+            gram_cache=self._gram_cache(bands_jax, driver_jax),
         )
+
+    def _gram_cache(self, bands_jax, driver_jax):
+        """The marginal likelihood's precomputed Gram matrices
+        (:class:`discotau.gram.GramCache`), one per frequency grid and set of
+        light curves, built on first use (only the marginalised model uses it).
+        Light curves are stacked as ``model._linear_marginal`` stacks them, the
+        driver light curve first."""
+        from .gram import GramCache
+        from .model import BACKGROUND_PRIOR_WIDTH, _offset_prior
+
+        curves = ([("driver", self.driver_data, driver_jax)] if self.driver_data is not None else []) + [
+            (name, d, bands_jax[name]) for name, d in self.bands.items()]
+        key = (np.asarray(self.freqs).tobytes(), tuple(
+            (name, id(d), len(d["t"]), bool(d.get("fit_error_model", False)), d.get("background_order", 0))
+            for name, d, _ in curves))
+        cached = getattr(self, "_gram_cache_obj", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        spec = {}
+        for name, d, dj in curves:
+            loc, sd = _offset_prior(jnp.asarray(d["y"]))
+            bg = dj["background_basis"]
+            spec[name] = dict(t=np.asarray(d["t"]), y=np.asarray(d["y"]), yerr=np.asarray(d["yerr"]),
+                              error_model=bool(d.get("fit_error_model", False)), offset_loc=float(loc),
+                              offset_sd=float(sd), bg_cols=None if bg is None else np.asarray(bg),
+                              bg_sd=float(BACKGROUND_PRIOR_WIDTH * jnp.std(jnp.asarray(d["y"]))))
+        cache = GramCache(self.freqs, spec)
+        self._gram_cache_obj = (key, cache)
+        return cache
 
     def _sigma_drw_prior_scale(self) -> float:
         """Data-anchored scale for ``sigma_drw``'s ``HalfNormal`` prior (see
