@@ -59,8 +59,16 @@ CASES = {
 }
 
 
+@pytest.fixture(params=["dense", "gram"])
+def host(request, monkeypatch):
+    import discotau.gram as gram
+
+    monkeypatch.setattr(gram, "HOST_METHOD", request.param)
+    return request.param
+
+
 @pytest.mark.parametrize("case", list(CASES))
-def test_gram_log_likelihood_matches_the_qr(data, case, monkeypatch):
+def test_gram_log_likelihood_matches_the_qr(data, case, host, monkeypatch):
     ef = _echofit(data, **CASES[case])
     for rng in (0, 1):
         params = _params(ef, rng)
@@ -74,7 +82,7 @@ def test_gram_log_likelihood_matches_the_qr(data, case, monkeypatch):
 
 
 @pytest.mark.parametrize("case", ["plain", "error model and driver"])
-def test_gram_gradient_matches_the_qr(data, case, monkeypatch):
+def test_gram_gradient_matches_the_qr(data, case, host, monkeypatch):
     ef = _echofit(data, **CASES[case])
     params = _params(ef, 2)
     grads = {}
@@ -88,7 +96,7 @@ def test_gram_gradient_matches_the_qr(data, case, monkeypatch):
         assert np.allclose(g_gram, g_qr, atol=5e-3 * scale, rtol=5e-3), k
 
 
-def test_gram_conditional_mean_predictions_match_the_qr(data, monkeypatch):
+def test_gram_conditional_mean_predictions_match_the_qr(data, host, monkeypatch):
     # With linear_eps pinned to zero the draw is the conditional mean, the same
     # in both factorisations (their eps maps differ but are equal in distribution).
     ef = _echofit(data, driver=True, error_model=("g",))
@@ -124,7 +132,7 @@ def test_error_model_weight_family_is_low_rank_and_exact(data):
     yerr = np.asarray(d["yerr"]) * np.linspace(0.6, 2.0, len(d["yerr"]))
     cache = GramCache(np.linspace(0.1, 2.0, 5), {"g": dict(t=d["t"], y=d["y"], yerr=yerr, error_model=True,
                                                            offset_loc=0.0, offset_sd=1.0, bg_cols=None,
-                                                           bg_sd=None)}).build()
+                                                           bg_sd=None)}, method="gram").build()
     blk = cache._blocks[0]
     assert 3 <= blk["U"].shape[1] <= 20
     e2 = yerr ** 2

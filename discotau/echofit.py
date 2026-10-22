@@ -681,12 +681,13 @@ class EchoFit:
         light curves, built on first use (only the marginalised model uses it).
         Light curves are stacked as ``model._linear_marginal`` stacks them, the
         driver light curve first."""
+        from . import gram as _gram
         from .gram import GramCache
         from .model import BACKGROUND_PRIOR_WIDTH, _offset_prior
 
         curves = ([("driver", self.driver_data, driver_jax)] if self.driver_data is not None else []) + [
             (name, d, bands_jax[name]) for name, d in self.bands.items()]
-        key = (np.asarray(self.freqs).tobytes(), tuple(
+        key = (_gram.HOST_METHOD, np.asarray(self.freqs).tobytes(), tuple(
             (name, id(d), len(d["t"]), bool(d.get("fit_error_model", False)), d.get("background_order", 0))
             for name, d, _ in curves))
         cached = getattr(self, "_gram_cache_obj", None)

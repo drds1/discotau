@@ -53,6 +53,12 @@ import scipy.linalg as sla
 # (plus u = 0).
 WEIGHT_RANK_TOL = 1e-10
 U_SPAN = (1e-6, 1e4)
+# How the host forms P: "dense" weights the fixed basis by each call's R and
+# noise and takes P = I + M^T M with one BLAS-3 syrk (compute-bound, the error
+# model exact at no extra cost); "gram" sums precomputed Gram matrices
+# (memory-bound passes over B x (2K)^2 values, r times more with the error
+# model). Dense wins unless a light curve has thousands of points.
+HOST_METHOD = "dense"
 
 
 class GramCache:
@@ -62,7 +68,12 @@ class GramCache:
     or None) and ``bg_sd``, in the order ``model._linear_marginal`` stacks
     them (the driver light curve first)."""
 
-    def __init__(self, freqs, curves: dict):
+    def __new__(cls, freqs, curves: dict, method=None):
+        if cls is GramCache and (method or HOST_METHOD) == "dense":
+            return super().__new__(DenseNormalCache)
+        return super().__new__(cls)
+
+    def __init__(self, freqs, curves: dict, method=None):
         self.freqs = np.asarray(freqs, dtype=np.float64)
         self.curves = curves
         self.names = list(curves)
@@ -371,3 +382,122 @@ def _rt(a, b, X):
     K = len(a)
     Xs, Xc = X[:K], X[K:]
     return np.vstack([a[:, None] * Xs - b[:, None] * Xc, b[:, None] * Xs + a[:, None] * Xc])
+
+
+class DenseNormalCache(GramCache):
+    """The same likelihood, interface and gradient as :class:`GramCache`, with
+    ``P = I + M~^T M~`` formed each call from the weighted design matrix
+    ``M~ = D^-1/2 [Phi R | E]`` by one BLAS-3 ``syrk`` in float64. The fixed
+    basis Phi is stored once (``N x 2K``); a call costs ``O(N p^2 + p^3)`` at
+    BLAS speed, and the error model only reweights rows, exactly.
+
+    Gradient: with ``u = P^-1 c``, ``W = P^-1 + u u^T`` and ``y~ = D^-1/2 y``,
+    ``dL/dM~ = y~ u^T - M~ W`` and ``dL/dy~ = M~ u - y~``; the per-mode
+    ``(a, b)`` follow by contracting with the basis, and each row's noise
+    variance from the row sums of ``dL/dM~ * M~`` and ``dL/dy~ * y~``."""
+
+    def build(self):
+        if self._blocks is not None:
+            return self
+        w = self.freqs
+        K = self.K
+        blocks, bg0, row0 = [], 2 * K + self.n_off, 0
+        for i, (name, c) in enumerate(self.curves.items()):
+            t = np.asarray(c["t"], dtype=np.float64)
+            y = np.asarray(c["y"], dtype=np.float64)
+            cols = [np.full(len(t), float(c["offset_sd"]))]
+            idx = [2 * K + i]
+            if c["bg_cols"] is not None:
+                kb = c["bg_cols"].shape[1]
+                cols += list((np.asarray(c["bg_cols"], dtype=np.float64) * float(c["bg_sd"])).T)
+                idx += list(range(bg0, bg0 + kb))
+                bg0 += kb
+            wt = np.outer(t, w)
+            blocks.append(dict(name=name, e2=np.asarray(c["yerr"], dtype=np.float64) ** 2, sin=np.sin(wt),
+                               cos=np.cos(wt), E=np.column_stack(cols), e_idx=np.array(idx),
+                               yt=y - float(c["offset_loc"]), rows=slice(row0, row0 + len(t)),
+                               projected=bool(c["error_model"])))
+            row0 += len(t)
+        self._blocks = blocks
+        self.N = row0
+        return self
+
+    def _assemble_dense(self, a, b, s, j):
+        K, p, N = self.K, self.p, self.N
+        Mt = np.zeros((N, p), order="F")
+        yw = np.empty(N)
+        logdetD = 0.0
+        sws = []
+        for k, blk in enumerate(self._blocks):
+            sig2 = s[k] ** 2 * blk["e2"] + j[k] ** 2
+            sw = 1.0 / np.sqrt(sig2)
+            r = blk["rows"]
+            Mt[r, :K] = (blk["sin"] * a[k] - blk["cos"] * b[k]) * sw[:, None]
+            Mt[r, K:2 * K] = (blk["sin"] * b[k] + blk["cos"] * a[k]) * sw[:, None]
+            Mt[r, blk["e_idx"]] = blk["E"] * sw[:, None]
+            yw[r] = blk["yt"] * sw
+            logdetD += float(np.sum(np.log(sig2)))
+            sws.append((sw, sig2))
+        from scipy.linalg.blas import dsyrk
+
+        P = dsyrk(1.0, Mt, trans=1, lower=0)  # upper triangle of M~^T M~
+        P = np.triu(P) + np.triu(P, 1).T
+        P[np.diag_indices(p)] += 1.0
+        cvec = Mt.T @ yw
+        return P, cvec, float(yw @ yw), logdetD, (Mt, yw, sws)
+
+    def _assemble(self, a, b, s, j):
+        return self._assemble_dense(a, b, s, j)
+
+    def _value(self, a, b, s, j):
+        P, cvec, yy, logdetD, _ = self._assemble_dense(a, b, s, j)
+        cf = _cholesky(P)
+        if cf is None:
+            return np.nan
+        u = sla.cho_solve(cf, cvec, check_finite=False)
+        logdetP = 2.0 * np.sum(np.log(np.diag(cf[0])))
+        return -0.5 * (yy - cvec @ u + logdetP + logdetD + self.N * np.log(2.0 * np.pi))
+
+    def value_and_grad(self, a, b, s, j):
+        self.build()
+        a, b, s, j = (np.asarray(x, dtype=np.float64) for x in (a, b, s, j))
+        K = self.K
+        P, cvec, yy, logdetD, (Mt, yw, sws) = self._assemble_dense(a, b, s, j)
+        cf = _cholesky(P)
+        if cf is None:
+            return np.nan, np.zeros_like(a), np.zeros_like(b), np.zeros_like(s), np.zeros_like(j)
+        u = sla.cho_solve(cf, cvec, check_finite=False)
+        logdetP = 2.0 * np.sum(np.log(np.diag(cf[0])))
+        L = -0.5 * (yy - cvec @ u + logdetP + logdetD + self.N * np.log(2.0 * np.pi))
+        W = sla.cho_solve(cf, np.eye(self.p), check_finite=False)
+        W += np.outer(u, u)
+        dM = np.outer(yw, u) - Mt @ W          # dL/dM~, (N, p)
+        dy = Mt @ u - yw                        # dL/dy~
+        da, db = np.zeros_like(a), np.zeros_like(b)
+        ds, dj = np.zeros_like(s), np.zeros_like(j)
+        for k, (blk, (sw, sig2)) in enumerate(zip(self._blocks, sws)):
+            r = blk["rows"]
+            gS = dM[r, :K] * sw[:, None]
+            gC = dM[r, K:2 * K] * sw[:, None]
+            sn, cs = blk["sin"], blk["cos"]
+            # M~_S = sw (sin a - cos b), M~_C = sw (sin b + cos a).
+            da[k] = np.sum(gS * sn + gC * cs, axis=0)
+            db[k] = np.sum(-gS * cs + gC * sn, axis=0)
+            if blk["projected"]:
+                cols = np.r_[0:2 * K, blk["e_idx"]]
+                # dL/dsw_i: every weighted quantity in row i is proportional to sw_i.
+                dsw = (np.sum(dM[r][:, cols] * Mt[r][:, cols], axis=1) + dy[r] * yw[r]) / sw
+                dsig2 = dsw * (-0.5) * sw ** 3 - 0.5 / sig2
+                ds[k] = float(np.sum(dsig2 * 2.0 * s[k] * blk["e2"]))
+                dj[k] = float(np.sum(dsig2 * 2.0 * j[k]))
+        return L, da, db, ds, dj
+
+    def conditional(self, a, b, s, j):
+        self.build()
+        a, b, s, j = (np.asarray(x, dtype=np.float64) for x in (a, b, s, j))
+        P, cvec, _, _, _ = self._assemble_dense(a, b, s, j)
+        cf = _cholesky(P)
+        if cf is None:
+            return np.full(self.p, np.nan), np.full((self.p, self.p), np.nan)
+        Lc = np.tril(cf[0])
+        return sla.cho_solve((Lc, True), cvec, check_finite=False), Lc
