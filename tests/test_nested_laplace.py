@@ -224,3 +224,27 @@ def test_draw_chunk_keeps_vmapped_scoring_within_its_memory_budget():
     assert 1 <= large < 25
     n, p = 6 * 515, 2 * 1150 + 24
     assert large * 16.0 * (n + p) * p <= nested_laplace.DRAW_BATCH_BYTES
+
+
+def test_inner_gradient_reusing_responses_matches_the_full_gradient():
+    from discotau.echofit import _initialize_marginal_model
+    from discotau.model import reverberation_model
+
+    data = generate_synthetic_dataset(bands={"g": 4770.0, "i": 7625.0}, M_BH=1.0e8, n_obs_per_band=30,
+                                      n_freq=8, n_tau=40, seed=2)
+    ef = EchoFit(M_BH=1.0e8)
+    for name, d in data["bands"].items():
+        ef.add_lightcurve(name, wavelength=d["wavelength"], t=d["t"], y=d["y"], yerr=d["yerr"], fit_error_model=True)
+    ef.build_grid(n_freq=8, n_tau=40)
+    kw = dict(ef._model_kwargs(), marginalise_linear=True)
+    info = _initialize_marginal_model(0, kw, ef._init_strategy(1), ef.M_BH)
+    prob = nested_laplace._Problem(reverberation_model, kw, info, nested_laplace.DEFAULT_GRID_PARAMS)
+    assert prob._resp_fn is not None
+    z = np.asarray(prob.z0, dtype=np.float64)
+    zr, zo = z[prob.inner], z[prob.outer]
+    for shift in (0.0, 0.3):  # a second outer point: the cache must refresh
+        zo_s = zo + shift
+        f, g = prob.vg(zr, zo_s)
+        f_full, g_full = prob.full_vg(prob._z(zr, zo_s))
+        assert f == pytest.approx(f_full, rel=1e-5, abs=1e-3)
+        assert np.allclose(g, g_full[prob.inner], rtol=1e-4, atol=1e-4 * np.abs(g_full).max())
