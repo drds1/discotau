@@ -141,8 +141,9 @@ def test_automatic_grid_is_the_default_and_has_the_designed_structure():
     n_trend = frequency_grid.N_TREND_MODES
     assert np.allclose(w[:n_trend] / h, np.arange(1, n_trend + 1), rtol=1e-5)
     steps = np.diff(w)[n_trend - 1:]
-    assert np.all(steps >= (2 * np.pi / (span + 40.0)) * (1 - 1e-5))      # never denser than the window
-    assert np.all(steps <= frequency_grid.MAX_LOG_STEP * w[n_trend - 1:-1] * (1 + 1e-5) + 1e-9)
+    # 1e-4: the frequencies are float32, so a step near 1 cycle/day is rounded by ~2e-5 of itself.
+    assert np.all(steps >= (2 * np.pi / (span + 40.0)) * (1 - 1e-4))      # never denser than the window
+    assert np.all(steps <= frequency_grid.MAX_LOG_STEP * w[n_trend - 1:-1] * (1 + 1e-4))
     f_top = w[-1] / (2 * np.pi)
     assert F_MAX_CYCLES_PER_DAY * 0.97 <= f_top <= frequency_grid.F_CAP_FACTOR * F_MAX_CYCLES_PER_DAY
     assert set(info["light_curves"]) == {"g", "i"}
