@@ -55,6 +55,8 @@ def test_free_band_with_driver_does_not_warn():
     ef.build_grid(n_freq=6, n_tau=40)
     with warnings.catch_warnings():
         warnings.simplefilter("error")  # any warning fails the test
+        # except the frequency-grid check, which rightly finds 6 modes too few
+        warnings.filterwarnings("ignore", message="check_frequency_grid")
         ef.fit(num_warmup=5, num_samples=5, progress_bar=False)
 
 

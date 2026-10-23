@@ -68,7 +68,7 @@ flowchart TD
 | `M_BH` | `EchoFit(...)` | required for physical bands | never fitted: set from the literature | 8 |
 | `drw_prior` | `EchoFit(...)` | `False` (random walk) | you want a damping timescale `tau_drw` and have a long enough baseline to constrain it | 6 |
 | `fixed_params` | `EchoFit(...)` | `{}` | a parameter is known, or badly constrained and you'd rather pin it | 8 |
-| `marginalise_linear` | `EchoFit(...)` | `False` | rarely: exact, but ~2× slower for NUTS here | 3 |
+| `marginalise_linear` | `EchoFit(...)` | `False` | running NUTS: with the warm start below it is the fastest NUTS measured | 3 |
 | `title`, `output_dir` | `EchoFit(...)` | `None` | long runs you may need to resume (checkpointed, single chain) | 4 |
 | `lag_mode` | `add_lightcurve` | `"physical"` | emission lines, or any band whose lag shouldn't follow the disk law | 7 |
 | `fit_error_model` | `add_lightcurve`, `add_driver_lightcurve` | `False` | real data whose quoted errors you don't fully trust | 7 |
@@ -88,6 +88,7 @@ flowchart TD
 | `num_chains`, `chain_method` | `fit` | 1, `"parallel"` | free-lag bands or any doubt about convergence: 4 chains | 4 |
 | `max_tree_depth` | `fit` | `None` (NumPyro's 10) | to cap worst-case cost per sample | 4 |
 | `init_from_optimum` | `fit` | `False` | after `.optimise()`, to start NUTS at its peak | 3 |
+| `mass_from_optimum` | `fit` | `False` | after `.optimise()`, to start warmup with its covariance as the mass matrix | 3 |
 | `checkpoint_every`, `report_every` | `fit` (with `title`) | 100, `None` | long runs; watching a report fill in | 4 |
 | response function | `discotau.model.response_function` | skew-normal | the physical thin-disk shape matters (section 9) | 9 |
 
@@ -110,11 +111,13 @@ flowchart TD
    exact Hessian (the Laplace approximation). The linear parameters are
    then drawn exactly for every sample, so every plot works.
 3. **`EchoFit(marginalise_linear=True)` + `.fit()`: NUTS on the marginalised
-   model.** Exact, samples ~8 parameters, but each step costs ~21× more (a
-   QR factorisation), so on the benchmark it is about 2× *less* efficient
-   than option 1. On the thin-disc response, though, the sampled model's
-   warmup stalled (step size ~1e-5, every iteration at 1023 steps) where this
-   one took ~7 steps per sample.
+   model.** Exact, samples ~8 parameters. Each step costs more than one of
+   the sampled model's, and on the small skew-normal benchmark below it was
+   about 2× *less* efficient than option 1. With the thin-disc response and
+   today's grids (hundreds of driver modes) it is the better choice: the
+   sampled model's warmup stalled (step size ~1e-5, every iteration at 1023
+   steps) where this one took ~7 steps per sample. Warm-started from
+   `.optimise()` it is the fastest NUTS measured (below).
 4. **`.optimise()`, the default direct solve: a nested Laplace
    approximation, no MCMC** (also `.nested_laplace()`). Grids
    `log_mdot_msun_yr` and inclination (and `temperature_slope` if fitted), integrates
@@ -199,9 +202,36 @@ direction that a single Laplace solve reports far too narrowly.
 In those cases, run the default `.optimise()` (nested Laplace), or `.fit()`.
 `.fit(init_from_optimum=True)` starts NUTS at `.optimise()`'s peak (the best
 mode's, after the nested solve) (single chain only, since identical starts would
-defeat multi-chain convergence checks). It should shorten the warmup
-needed, but that hasn't been benchmarked yet, so keep `num_warmup` at its
-default.
+defeat multi-chain convergence checks).
+
+### Running NUTS: the marginalised model, warm-started
+
+With the thin-disc response and today's frequency grids, this is the
+recommended way to run NUTS:
+
+```python
+ef = EchoFit(M_BH=..., marginalise_linear=True)
+# ... add light curves, build_grid() ...
+ef.optimise()
+ef.fit(init_from_optimum=True, mass_from_optimum=True, num_warmup=300)
+```
+
+`mass_from_optimum=True` gives NUTS the direct solve's covariance as its
+inverse mass matrix, so warmup starts already adapted. On a 6-band simulated
+campaign with 327 driver modes (Kaggle, 500 samples each):
+
+| | warmup | NUTS time | divergences |
+|---|---|---|---|
+| sampled model (default) | 1000 | 28 185 s | 0, but did not mix (effective sample size 7) |
+| sampled model, warm start and mass | 300 | 13 294 s | 38 |
+| marginalised model, defaults | 1000 | 5004 s | 0 |
+| marginalised model, warm start and mass | 300 | 1771 s | 0 |
+
+The sampled model has ~670 parameters at that grid size (two per driver
+mode), and it did not mix even when warm-started. Why is not yet understood.
+The marginalised model samples only the ~10 nonlinear parameters and
+integrates the rest out exactly, in float64 (`docs/fast_direct_solves.md`).
+This is one simulated campaign, so treat the ratios as indicative.
 
 ---
 
@@ -582,7 +612,8 @@ After `.optimise(method="laplace")`:
 - **The default warmup length hasn't been tuned.** 500 was ample on the
   benchmark; whether the 1000 default can drop safely across real
   campaigns is unmeasured.
-- **`init_from_optimum`'s effect on warmup** hasn't been benchmarked.
+- **`init_from_optimum`'s effect on warmup** has been benchmarked on one
+  simulated campaign only (section 3).
 - **Benchmarks come from one synthetic dataset.** The dense-over-diagonal
   gain is the most robust result; the solver ratios could shift on much
   larger datasets.
