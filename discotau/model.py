@@ -320,7 +320,6 @@ def reverberation_model(
     type1_opening_deg: float = TYPE1_OPENING_DEG,
     type1_width_deg: float = TYPE1_WIDTH_DEG,
     gram_cache=None,
-    physical_responses=None,
 ):
     """NumPyro model for multi-band reverberation-mapped light curves.
 
@@ -503,11 +502,7 @@ def reverberation_model(
     # Planck weight depend on wavelength.
     physical = [name for name, d in bands.items() if d["lag_mode"] == "physical"]
     psi_physical = {}
-    if physical and physical_responses is not None:
-        # Precomputed at fixed outer parameters (the nested solve's inner loop):
-        # the sites above still carry their priors, the responses are inputs.
-        psi_physical = dict(zip(physical, physical_responses))
-    elif physical:
+    if physical:
         psi_physical = dict(zip(physical, _call_responses(
             response_function, tau_grid, log_mdot_msun_yr, [bands[n]["wavelength"] for n in physical], inclination, M_BH,
             **slope_kwargs)))

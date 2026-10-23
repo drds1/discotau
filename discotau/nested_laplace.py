@@ -231,19 +231,6 @@ class _Problem:
         from .exact_hessian import ExactHessian
 
         self.exact = ExactHessian.create(model, kwargs, self.unravel, self.z0, self.full_grad)
-        # Inner gradients at a fixed outer point reuse that point's physical
-        # responses (the thin-disc response and its derivatives were ~25 per
-        # cent of each gradient): one compiled function gives the responses at
-        # an outer point, another the potential's gradient with them as inputs.
-        # Only valid when every sampled site the responses depend on is gridded
-        # (outer): with, say, only the accretion rate gridded, a free inclination
-        # would be an inner parameter and stale responses a wrong gradient.
-        response_sites = {"log_mdot_msun_yr", "cos_inclination", "temperature_slope"} & set(index)
-        if response_sites <= set(self.names):
-            self._resp_fn, self._vg_resp = _response_reuse(model, kwargs, self.unravel)
-        else:
-            self._resp_fn, self._vg_resp = None, None
-        self._resp_cache = (None, None)
 
     def _z(self, zr, zo):
         z = np.empty(self.z0.size)
@@ -267,16 +254,8 @@ class _Problem:
                    for n, z, t in zip(self.names, zo, theta))
 
     def vg(self, zr, zo):
-        if self._resp_fn is None:
-            f, g = self.full_vg(self._z(zr, zo))
-            return f, g[self.inner]
-        z = jnp.asarray(self._z(zr, zo), dtype=self.dtype)
-        key = np.asarray(zo, dtype=np.float64).tobytes()
-        if self._resp_cache[0] != key:
-            self._resp_cache = (key, self._resp_fn(z))
-        self.n_grad += 1
-        f, g = self._vg_resp(z, self._resp_cache[1])
-        return float(f), np.asarray(g, dtype=np.float64)[self.inner]
+        f, g = self.full_vg(self._z(zr, zo))
+        return f, g[self.inner]
 
     def hessian(self, zr, zo, h_ref):
         """Inner block H_rr and cross block H_ro of the Hessian at (zr, zo), by
@@ -308,40 +287,6 @@ class _Problem:
                 break
             vals, vecs = new_vals, new_vecs
         return h_rr, h_or.T
-
-
-def _response_reuse(model, kwargs, unravel):
-    """``(responses(z), value_and_grad(z, responses))`` for reusing the physical
-    bands' responses across inner gradients at one outer point, or
-    ``(None, None)`` if the model has no physical band."""
-    from numpyro import handlers
-    from numpyro.infer.util import constrain_fn, potential_energy
-
-    from . import model as _model
-
-    if not any(d.get("lag_mode", "physical") == "physical" for d in kwargs["bands"].values()):
-        return None, None
-
-    def responses(z):
-        values = constrain_fn(model, (), kwargs, unravel(z), return_deterministic=False)
-        grabbed = {}
-        original = _model._call_responses
-
-        def grab(*args, **kw):
-            grabbed["psi"] = original(*args, **kw)
-            return grabbed["psi"]
-
-        _model._call_responses = grab
-        try:
-            handlers.trace(handlers.substitute(handlers.seed(model, 0), values)).get_trace(**kwargs)
-        finally:
-            _model._call_responses = original
-        return jnp.stack(grabbed["psi"])
-
-    def potential(z, psis):
-        return potential_energy(model, (), dict(kwargs, physical_responses=psis), unravel(z))
-
-    return jax.jit(responses), jax.jit(jax.value_and_grad(potential))
 
 
 def _inner_solve(prob: _Problem, zr, zo, h_rr, tol=1e-2, max_iter=30):
