@@ -48,35 +48,35 @@ from __future__ import annotations
 import numpy as np
 import scipy.linalg as sla
 
-# Weight-family basis: singular values kept down to this fraction of the
-# largest, over u from U_SPAN[0] to U_SPAN[1] times the mean squared error
-# (plus u = 0).
+# Weight-family basis (Gram mode with the error model): singular values kept
+# down to this fraction of the largest, over u from U_SPAN[0] to U_SPAN[1] times
+# the mean squared error (plus u = 0).
 WEIGHT_RANK_TOL = 1e-10
 U_SPAN = (1e-6, 1e4)
-# How the host forms P: "dense" weights the fixed basis by each call's R and
-# noise and takes P = I + M^T M with one BLAS-3 syrk (compute-bound, the error
-# model exact at no extra cost); "gram" sums precomputed Gram matrices
-# (memory-bound passes over B x (2K)^2 values, r times more with the error
-# model). Dense wins unless a light curve has thousands of points.
-HOST_METHOD = "dense"
+# How each light curve enters P. "gram": a sum of its precomputed Gram matrices
+# (memory-bound passes over (2K)^2 values; r ~ 10 times more with the error
+# model). "dense": its rows of the weighted design matrix, formed each call from
+# the stored basis, into one BLAS-3 syrk (compute-bound, the error model exact
+# at no extra cost). "auto": Gram for light curves whose noise is fixed, dense
+# for those with the error model. Per gradient on Kaggle (seconds, QR / Gram /
+# dense): Fairall 9's cadence 0.66 / 0.23 / 0.42; NGC 5548's 0.65 / 0.30 / 0.48,
+# and with the error model 0.64 / 0.80 / 0.48.
+HOST_METHOD = "auto"
 
 
 class GramCache:
-    """Gram matrices of every light curve for one frequency grid, built on
-    first use. ``curves``: block name -> dict with ``t``, ``y``, ``yerr``,
-    ``error_model`` (bool), ``offset_loc``, ``offset_sd``, ``bg_cols`` (``(n, K)``
-    or None) and ``bg_sd``, in the order ``model._linear_marginal`` stacks
-    them (the driver light curve first)."""
-
-    def __new__(cls, freqs, curves: dict, method=None):
-        if cls is GramCache and (method or HOST_METHOD) == "dense":
-            return super().__new__(DenseNormalCache)
-        return super().__new__(cls)
+    """Precomputed pieces of every light curve for one frequency grid, built
+    on first use. ``curves``: block name -> dict with ``t``, ``y``, ``yerr``,
+    ``error_model`` (bool), ``offset_loc``, ``offset_sd``, ``bg_cols``
+    (``(n, K)`` or None) and ``bg_sd``, in the order ``model._linear_marginal``
+    stacks them (the driver light curve first). ``method`` overrides
+    ``HOST_METHOD`` for this cache."""
 
     def __init__(self, freqs, curves: dict, method=None):
         self.freqs = np.asarray(freqs, dtype=np.float64)
         self.curves = curves
         self.names = list(curves)
+        self.method = method or HOST_METHOD
         self.K = len(self.freqs)
         self.n_off = len(curves)
         self.n_bg = sum(0 if c["bg_cols"] is None else c["bg_cols"].shape[1] for c in curves.values())
@@ -95,18 +95,23 @@ class GramCache:
         r = max(1, int(np.sum(S > WEIGHT_RANK_TOL * S[0])))
         return U[:, :r], True
 
+    def _mode(self, error_model):
+        if self.method == "auto":
+            return "dense" if error_model else "gram"
+        return self.method
+
     def build(self):
         if self._blocks is not None:
             return self
-        w = self.freqs
-        blocks, bg0 = [], 2 * self.K + self.n_off
+        w, K = self.freqs, self.K
+        blocks, bg0, row0 = [], 2 * K + self.n_off, 0
         for i, (name, c) in enumerate(self.curves.items()):
             t = np.asarray(c["t"], dtype=np.float64)
             y = np.asarray(c["y"], dtype=np.float64)
             e2 = np.asarray(c["yerr"], dtype=np.float64) ** 2
             yt = y - float(c["offset_loc"])
             cols = [np.full(len(t), float(c["offset_sd"]))]
-            idx = [2 * self.K + i]
+            idx = [2 * K + i]
             if c["bg_cols"] is not None:
                 kb = c["bg_cols"].shape[1]
                 cols += list((np.asarray(c["bg_cols"], dtype=np.float64) * float(c["bg_sd"])).T)
@@ -114,32 +119,38 @@ class GramCache:
                 bg0 += kb
             E = np.column_stack(cols)
             wt = np.outer(t, w)
-            Phi = np.hstack([np.sin(wt), np.cos(wt)])
-            U, projected = self._weight_basis(e2, c["error_model"])
-            G, GE, EE, h, hE, yy = [], [], [], [], [], []
-            for r in range(U.shape[1]):
-                d = U[:, r]
-                PhiD = Phi * d[:, None]
-                G.append(PhiD.T @ Phi)
-                GE.append(PhiD.T @ E)
-                EE.append((E * d[:, None]).T @ E)
-                h.append(PhiD.T @ yt)
-                hE.append((E * d[:, None]).T @ yt)
-                yy.append(float(yt @ (d * yt)))
-            G = np.stack(G)
-            K = self.K
-            blocks.append(dict(name=name, e2=e2, U=U, projected=projected, e_idx=np.array(idx),
-                               G=G, Gss=np.ascontiguousarray(G[:, :K, :K]), Gsc=np.ascontiguousarray(G[:, :K, K:]),
-                               Gcc=np.ascontiguousarray(G[:, K:, K:]),
-                               GE=np.stack(GE), EE=np.stack(EE), h=np.stack(h), hE=np.stack(hE), yy=np.array(yy)))
+            mode = self._mode(bool(c["error_model"]))
+            blk = dict(name=name, e2=e2, e_idx=np.array(idx), mode=mode, projected=bool(c["error_model"]))
+            if mode == "dense":
+                blk.update(sin=np.sin(wt), cos=np.cos(wt), E=E, yt=yt, rows=slice(row0, row0 + len(t)))
+                row0 += len(t)
+            else:
+                Phi = np.hstack([np.sin(wt), np.cos(wt)])
+                U, projected = self._weight_basis(e2, c["error_model"])
+                G, GE, EE, h, hE, yy = [], [], [], [], [], []
+                for r in range(U.shape[1]):
+                    d = U[:, r]
+                    PhiD = Phi * d[:, None]
+                    G.append(PhiD.T @ Phi)
+                    GE.append(PhiD.T @ E)
+                    EE.append((E * d[:, None]).T @ E)
+                    h.append(PhiD.T @ yt)
+                    hE.append((E * d[:, None]).T @ yt)
+                    yy.append(float(yt @ (d * yt)))
+                G = np.stack(G)
+                blk.update(U=U, projected=projected, Gss=np.ascontiguousarray(G[:, :K, :K]),
+                           Gsc=np.ascontiguousarray(G[:, :K, K:]), Gcc=np.ascontiguousarray(G[:, K:, K:]),
+                           G=G, GE=np.stack(GE), EE=np.stack(EE), h=np.stack(h), hE=np.stack(hE), yy=np.array(yy))
+            blocks.append(blk)
         self._blocks = blocks
+        self.n_dense = row0
         self.N = int(sum(len(b["e2"]) for b in blocks))
         return self
 
     # ------------------------------------------------------------ numerics
     def _coeffs(self, blk, s, j):
-        """Weight coefficients q_r (the Gram quantities are sum_r q_r X_r) and
-        their derivatives with respect to s and j."""
+        """Gram mode: weight coefficients q_r (the Gram quantities are
+        sum_r q_r X_r) and their derivatives with respect to s and j."""
         if not blk["projected"]:
             return np.ones(1), np.zeros(1), np.zeros(1)
         u = (j / s) ** 2
@@ -153,12 +164,12 @@ class GramCache:
 
     def _assemble(self, a, b, s, j):
         """P (the linear parameters' conditional precision), the data
-        projections, and per-block pieces the gradient reuses. R^T G R is
-        accumulated as four K x K blocks: with G R's blocks
-        GR_sS = G_ss a - G_sc b, GR_sC = G_ss b + G_sc a (and cos rows alike),
-        P_SS = a GR_sS - b GR_cS, P_SC = a GR_sC - b GR_cC,
-        P_CS = b GR_sS + a GR_cS, P_CC = b GR_sC + a GR_cC
-        (a, b scaling columns, then rows), in place."""
+        projections c, y^T D^-1 y, log det D, and per-block pieces the gradient
+        reuses. Gram blocks: R^T G R accumulated into P's four K x K blocks in
+        place (with G R's blocks GR_sS = G_ss a - G_sc b, GR_sC = G_ss b + G_sc a
+        and cos rows alike: P_SS = a GR_sS - b GR_cS, P_SC = a GR_sC - b GR_cC,
+        P_CS = b GR_sS + a GR_cS, P_CC = b GR_sC + a GR_cC). Dense blocks: their
+        rows of M~ = D^-1/2 [Phi R | E], then one syrk for all of them."""
         K, p = self.K, self.p
         P = np.zeros((p, p))
         cvec = np.zeros(p)
@@ -166,14 +177,27 @@ class GramCache:
         parts = []
         PSS, PSC, PCS, PCC = P[:K, :K], P[:K, K:2 * K], P[K:2 * K, :K], P[K:2 * K, K:2 * K]
         tmp = np.empty((K, K))
+        Mt = np.zeros((self.n_dense, p), order="F") if self.n_dense else None
+        yw = np.empty(self.n_dense)
         for k, blk in enumerate(self._blocks):
+            ak, bk = a[k], b[k]
+            sig2 = s[k] ** 2 * blk["e2"] + j[k] ** 2
+            logdetD += float(np.sum(np.log(sig2)))
+            if blk["mode"] == "dense":
+                sw = 1.0 / np.sqrt(sig2)
+                r = blk["rows"]
+                Mt[r, :K] = (blk["sin"] * ak - blk["cos"] * bk) * sw[:, None]
+                Mt[r, K:2 * K] = (blk["sin"] * bk + blk["cos"] * ak) * sw[:, None]
+                Mt[r, blk["e_idx"]] = blk["E"] * sw[:, None]
+                yw[r] = blk["yt"] * sw
+                parts.append(dict(sw=sw, sig2=sig2))
+                continue
             q, dq_ds, dq_dj = self._coeffs(blk, s[k], j[k])
             if blk["projected"]:
                 Gss, Gsc, Gcc = (np.tensordot(q, blk[n], 1) for n in ("Gss", "Gsc", "Gcc"))
             else:
                 Gss, Gsc, Gcc = blk["Gss"][0], blk["Gsc"][0], blk["Gcc"][0]
             GE = np.tensordot(q, blk["GE"], 1)
-            ak, bk = a[k], b[k]
             Gcs = Gsc.T
             GR_sS = Gss * ak - Gsc * bk
             GR_sC = Gss * bk + Gsc * ak
@@ -197,11 +221,17 @@ class GramCache:
             cvec[:2 * K] += _rt(ak, bk, h[:, None])[:, 0]
             cvec[ei] += q @ blk["hE"]
             yy += float(q @ blk["yy"])
-            sig2 = s[k] ** 2 * blk["e2"] + j[k] ** 2
-            logdetD += float(np.sum(np.log(sig2)))
-            parts.append(dict(q=q, dq_ds=dq_ds, dq_dj=dq_dj, GR=(GR_sS, GR_sC, GR_cS, GR_cC), GE=GE, h=h, sig2=sig2))
+            parts.append(dict(q=q, dq_ds=dq_ds, dq_dj=dq_dj, GR=(GR_sS, GR_sC, GR_cS, GR_cC), GE=GE, h=h,
+                              sig2=sig2))
+        if self.n_dense:
+            from scipy.linalg.blas import dsyrk
+
+            Pd = dsyrk(1.0, Mt, trans=1, lower=0)
+            P += np.triu(Pd) + np.triu(Pd, 1).T
+            cvec += Mt.T @ yw
+            yy += float(yw @ yw)
         P[np.diag_indices(p)] += 1.0
-        return P, cvec, yy, logdetD, parts
+        return P, cvec, yy, logdetD, (parts, Mt, yw)
 
     def _value(self, a, b, s, j):
         P, cvec, yy, logdetD, _ = self._assemble(a, b, s, j)
@@ -219,7 +249,7 @@ class GramCache:
         self.build()
         a, b, s, j = (np.asarray(x, dtype=np.float64) for x in (a, b, s, j))
         K = self.K
-        P, cvec, yy, logdetD, parts = self._assemble(a, b, s, j)
+        P, cvec, yy, logdetD, (parts, Mt, yw) = self._assemble(a, b, s, j)
         cf = _cholesky(P)
         if cf is None:
             # Not numerically positive definite (an absurd trial point, e.g. a
@@ -233,16 +263,34 @@ class GramCache:
         W = sla.cho_solve(cf, np.eye(self.p), check_finite=False)
         W += np.outer(u, u)
         Wtt, ut = W[:2 * K, :2 * K], u[:2 * K]
+        WS, WC = Wtt[:K], Wtt[K:]
+        if self.n_dense:
+            dM = np.outer(yw, u) - Mt @ W          # dL/dM~ for the dense rows
+            dy = Mt @ u - yw                        # dL/dy~
         da, db = np.zeros_like(a), np.zeros_like(b)
         ds, dj = np.zeros_like(s), np.zeros_like(j)
         for k, (blk, pt) in enumerate(zip(self._blocks, parts)):
             ei = blk["e_idx"]
+            if blk["mode"] == "dense":
+                r, sw = blk["rows"], pt["sw"]
+                gS = dM[r, :K] * sw[:, None]
+                gC = dM[r, K:2 * K] * sw[:, None]
+                sn, cs = blk["sin"], blk["cos"]
+                # M~_S = sw (sin a - cos b), M~_C = sw (sin b + cos a).
+                da[k] = np.sum(gS * sn + gC * cs, axis=0)
+                db[k] = np.sum(-gS * cs + gC * sn, axis=0)
+                if blk["projected"]:
+                    cols = np.r_[0:2 * K, ei]
+                    # Every weighted quantity in a row is proportional to its sw.
+                    dsw = (np.sum(dM[r][:, cols] * Mt[r][:, cols], axis=1) + dy[r] * yw[r]) / sw
+                    dsig2 = dsw * (-0.5) * sw ** 3 - 0.5 / pt["sig2"]
+                    ds[k] = float(np.sum(dsig2 * 2.0 * s[k] * blk["e2"]))
+                    dj[k] = float(np.sum(dsig2 * 2.0 * j[k]))
+                continue
             Wet = W[ei, :2 * K]
             (GR_sS, GR_sC, GR_cS, GR_cC), GE, h = pt["GR"], pt["GE"], pt["h"]
             # dL/dR = h u^T - G R W_tt - G_E W_et: diagonals of its four K x K
-            # sub-blocks. (G R W)_kk over (row r, col c) = sum over the S and C
-            # halves of GR_rS[k] . W_S,c[:, k] + GR_rC[k] . W_C,c[:, k].
-            WS, WC = Wtt[:K], Wtt[K:]
+            # sub-blocks; (G R W)_kk = GR_rS[k] . W_S,c[:, k] + GR_rC[k] . W_C,c[:, k].
 
             def dblk(GR_rS, GR_rC, rows, cols):
                 return (h[rows] * ut[cols]
@@ -262,11 +310,10 @@ class GramCache:
                 RW_te = _r(ak, bk, W[:2 * K, ei])  # R W_te: (2K, n_e)
                 Ru = _r(ak, bk, ut[:, None])[:, 0]
                 Wee = W[np.ix_(ei, ei)]
-                ue = u[ei]
                 g = (-0.5 * np.einsum("ij,rij->r", RWRt, blk["G"])
                      - np.einsum("ij,rij->r", RW_te, blk["GE"])
                      - 0.5 * np.einsum("ij,rij->r", Wee, blk["EE"])
-                     + blk["h"] @ Ru + blk["hE"] @ ue - 0.5 * blk["yy"])
+                     + blk["h"] @ Ru + blk["hE"] @ u[ei] - 0.5 * blk["yy"])
                 sig2 = pt["sig2"]
                 ds[k] = g @ pt["dq_ds"] - np.sum(s[k] * blk["e2"] / sig2)
                 dj[k] = g @ pt["dq_dj"] - np.sum(j[k] / sig2)
@@ -280,11 +327,9 @@ class GramCache:
         P, cvec, _, _, _ = self._assemble(a, b, s, j)
         cf = _cholesky(P)
         if cf is None:
-            nan = np.full(self.p, np.nan)
-            return nan, np.full((self.p, self.p), np.nan)
+            return np.full(self.p, np.nan), np.full((self.p, self.p), np.nan)
         Lc = np.tril(cf[0])
-        mean = sla.cho_solve((Lc, True), cvec, check_finite=False)
-        return mean, Lc
+        return sla.cho_solve((Lc, True), cvec, check_finite=False), Lc
 
     def precision(self, a, b, s, j):
         """The linear parameters' conditional precision ``P`` (float64)."""
@@ -382,122 +427,3 @@ def _rt(a, b, X):
     K = len(a)
     Xs, Xc = X[:K], X[K:]
     return np.vstack([a[:, None] * Xs - b[:, None] * Xc, b[:, None] * Xs + a[:, None] * Xc])
-
-
-class DenseNormalCache(GramCache):
-    """The same likelihood, interface and gradient as :class:`GramCache`, with
-    ``P = I + M~^T M~`` formed each call from the weighted design matrix
-    ``M~ = D^-1/2 [Phi R | E]`` by one BLAS-3 ``syrk`` in float64. The fixed
-    basis Phi is stored once (``N x 2K``); a call costs ``O(N p^2 + p^3)`` at
-    BLAS speed, and the error model only reweights rows, exactly.
-
-    Gradient: with ``u = P^-1 c``, ``W = P^-1 + u u^T`` and ``y~ = D^-1/2 y``,
-    ``dL/dM~ = y~ u^T - M~ W`` and ``dL/dy~ = M~ u - y~``; the per-mode
-    ``(a, b)`` follow by contracting with the basis, and each row's noise
-    variance from the row sums of ``dL/dM~ * M~`` and ``dL/dy~ * y~``."""
-
-    def build(self):
-        if self._blocks is not None:
-            return self
-        w = self.freqs
-        K = self.K
-        blocks, bg0, row0 = [], 2 * K + self.n_off, 0
-        for i, (name, c) in enumerate(self.curves.items()):
-            t = np.asarray(c["t"], dtype=np.float64)
-            y = np.asarray(c["y"], dtype=np.float64)
-            cols = [np.full(len(t), float(c["offset_sd"]))]
-            idx = [2 * K + i]
-            if c["bg_cols"] is not None:
-                kb = c["bg_cols"].shape[1]
-                cols += list((np.asarray(c["bg_cols"], dtype=np.float64) * float(c["bg_sd"])).T)
-                idx += list(range(bg0, bg0 + kb))
-                bg0 += kb
-            wt = np.outer(t, w)
-            blocks.append(dict(name=name, e2=np.asarray(c["yerr"], dtype=np.float64) ** 2, sin=np.sin(wt),
-                               cos=np.cos(wt), E=np.column_stack(cols), e_idx=np.array(idx),
-                               yt=y - float(c["offset_loc"]), rows=slice(row0, row0 + len(t)),
-                               projected=bool(c["error_model"])))
-            row0 += len(t)
-        self._blocks = blocks
-        self.N = row0
-        return self
-
-    def _assemble_dense(self, a, b, s, j):
-        K, p, N = self.K, self.p, self.N
-        Mt = np.zeros((N, p), order="F")
-        yw = np.empty(N)
-        logdetD = 0.0
-        sws = []
-        for k, blk in enumerate(self._blocks):
-            sig2 = s[k] ** 2 * blk["e2"] + j[k] ** 2
-            sw = 1.0 / np.sqrt(sig2)
-            r = blk["rows"]
-            Mt[r, :K] = (blk["sin"] * a[k] - blk["cos"] * b[k]) * sw[:, None]
-            Mt[r, K:2 * K] = (blk["sin"] * b[k] + blk["cos"] * a[k]) * sw[:, None]
-            Mt[r, blk["e_idx"]] = blk["E"] * sw[:, None]
-            yw[r] = blk["yt"] * sw
-            logdetD += float(np.sum(np.log(sig2)))
-            sws.append((sw, sig2))
-        from scipy.linalg.blas import dsyrk
-
-        P = dsyrk(1.0, Mt, trans=1, lower=0)  # upper triangle of M~^T M~
-        P = np.triu(P) + np.triu(P, 1).T
-        P[np.diag_indices(p)] += 1.0
-        cvec = Mt.T @ yw
-        return P, cvec, float(yw @ yw), logdetD, (Mt, yw, sws)
-
-    def _assemble(self, a, b, s, j):
-        return self._assemble_dense(a, b, s, j)
-
-    def _value(self, a, b, s, j):
-        P, cvec, yy, logdetD, _ = self._assemble_dense(a, b, s, j)
-        cf = _cholesky(P)
-        if cf is None:
-            return np.nan
-        u = sla.cho_solve(cf, cvec, check_finite=False)
-        logdetP = 2.0 * np.sum(np.log(np.diag(cf[0])))
-        return -0.5 * (yy - cvec @ u + logdetP + logdetD + self.N * np.log(2.0 * np.pi))
-
-    def value_and_grad(self, a, b, s, j):
-        self.build()
-        a, b, s, j = (np.asarray(x, dtype=np.float64) for x in (a, b, s, j))
-        K = self.K
-        P, cvec, yy, logdetD, (Mt, yw, sws) = self._assemble_dense(a, b, s, j)
-        cf = _cholesky(P)
-        if cf is None:
-            return np.nan, np.zeros_like(a), np.zeros_like(b), np.zeros_like(s), np.zeros_like(j)
-        u = sla.cho_solve(cf, cvec, check_finite=False)
-        logdetP = 2.0 * np.sum(np.log(np.diag(cf[0])))
-        L = -0.5 * (yy - cvec @ u + logdetP + logdetD + self.N * np.log(2.0 * np.pi))
-        W = sla.cho_solve(cf, np.eye(self.p), check_finite=False)
-        W += np.outer(u, u)
-        dM = np.outer(yw, u) - Mt @ W          # dL/dM~, (N, p)
-        dy = Mt @ u - yw                        # dL/dy~
-        da, db = np.zeros_like(a), np.zeros_like(b)
-        ds, dj = np.zeros_like(s), np.zeros_like(j)
-        for k, (blk, (sw, sig2)) in enumerate(zip(self._blocks, sws)):
-            r = blk["rows"]
-            gS = dM[r, :K] * sw[:, None]
-            gC = dM[r, K:2 * K] * sw[:, None]
-            sn, cs = blk["sin"], blk["cos"]
-            # M~_S = sw (sin a - cos b), M~_C = sw (sin b + cos a).
-            da[k] = np.sum(gS * sn + gC * cs, axis=0)
-            db[k] = np.sum(-gS * cs + gC * sn, axis=0)
-            if blk["projected"]:
-                cols = np.r_[0:2 * K, blk["e_idx"]]
-                # dL/dsw_i: every weighted quantity in row i is proportional to sw_i.
-                dsw = (np.sum(dM[r][:, cols] * Mt[r][:, cols], axis=1) + dy[r] * yw[r]) / sw
-                dsig2 = dsw * (-0.5) * sw ** 3 - 0.5 / sig2
-                ds[k] = float(np.sum(dsig2 * 2.0 * s[k] * blk["e2"]))
-                dj[k] = float(np.sum(dsig2 * 2.0 * j[k]))
-        return L, da, db, ds, dj
-
-    def conditional(self, a, b, s, j):
-        self.build()
-        a, b, s, j = (np.asarray(x, dtype=np.float64) for x in (a, b, s, j))
-        P, cvec, _, _, _ = self._assemble_dense(a, b, s, j)
-        cf = _cholesky(P)
-        if cf is None:
-            return np.full(self.p, np.nan), np.full((self.p, self.p), np.nan)
-        Lc = np.tril(cf[0])
-        return sla.cho_solve((Lc, True), cvec, check_finite=False), Lc

@@ -59,7 +59,7 @@ CASES = {
 }
 
 
-@pytest.fixture(params=["dense", "gram"])
+@pytest.fixture(params=["auto", "dense", "gram"])
 def host(request, monkeypatch):
     import discotau.gram as gram
 
