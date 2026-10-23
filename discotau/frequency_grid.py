@@ -22,7 +22,8 @@ Before a fit, rho is estimated from each light curve alone, with an exact
 Gaussian-process fit of a smoothed random walk plus excess white noise
 (:func:`fit_light_curve_power`), and multiplied by a safety factor. After a
 fit, :meth:`discotau.EchoFit.check_frequency_grid` recomputes rho from the
-fitted model and warns if the grid loses more than ~1 in log evidence.
+fitted model and warns if the grid is predicted to lose more than 2 in log
+evidence (the prediction is conservative).
 
 Tested exactly (KL against all harmonics to 4 cycles/day, no fitting) on 19
 simulated campaigns (``experiments/frequency_grid/``): worst predicted loss
@@ -60,12 +61,16 @@ MIN_POINTS = 10
 MAX_POINTS = 1000
 # Warn above this many modes: each gradient costs roughly O(modes^2 to modes^3).
 LARGE_GRID_MODES = 3000
-# The post-fit check warns above this predicted loss.
-CHECK_LOSS = 1.0
+# The post-fit check warns above this predicted loss. Its prediction ran 1-4x
+# the exact KL on the simulated campaigns (on the safe side), and a converged
+# grid is KL ~1 or less: at 1 it warned falsely on a 3-day cadence (predicted
+# 1.45, exact 0.43). Every unconverged grid tested predicted 1.9 or more.
+CHECK_LOSS = 2.0
 # Whether the estimate fits a smoothing timescale to driver light curves and
 # free-lag bands too. False: they are estimated as unsmoothed random walks,
 # as the model treats them, which over-provisions (2-4x the modes needed on
-# the simulated campaigns).
+# the simulated campaigns). True halved an X-ray driver's grid at no cost but
+# left both free-lag campaigns unconverged (KL ~5), so it stays off.
 SMOOTH_ALL = False
 
 TRAP = np.trapezoid if hasattr(np, "trapezoid") else np.trapz

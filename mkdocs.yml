@@ -48,6 +48,7 @@ nav:
       - Performance and the direct solve: performance_improvements.md
       - "Nested Laplace: fast posteriors with ridges and modes": nested_laplace.md
       - "Faster direct solves": fast_direct_solves.md
+      - "The automatic frequency grid": frequency_grid.md
   - API reference: api.md
   - Development:
       - Releasing: releasing.md

@@ -75,7 +75,8 @@ flowchart TD
 | `diffuse_continuum` | `add_lightcurve` | `False` | delays look too long for a disc, or there is a lag excess near the Balmer jump (broad-line-region diffuse continuum) | 7 |
 | `background_order` | `add_lightcurve`, `add_driver_lightcurve` | `1` | `0` only if you are sure there are no trends; `2` for curved ones | 7 |
 | `f_max` | `build_grid` | 2 cycles/day | black holes much lighter than ~1e7 Msun (raise it); speed on low-SNR data (lower it) | 5 |
-| `log_step` | `build_grid` | 0.01 | rarely | 5 |
+| `log_step` | `build_grid` | unset (automatic grid) | `0.01` reproduces the fixed grid used before October 2026 | 5 |
+| `grid_safety` | `build_grid` | 3 | `check_frequency_grid()` warns after a fit (raise it) | 5 |
 | `n_freq` | `build_grid` | unset (grid sized from `period_max`, `f_max`) | small, fast fits only: gives the old log grid with this many frequencies | 5 |
 | `n_tau` | `build_grid` | 400 | a resolution warning appears | 5 |
 | `tau_max` | `build_grid` | half the baseline | lags are known to be much shorter (sharper grid) | 5 |
@@ -325,59 +326,77 @@ during the run. Use it for anything long enough that losing it would hurt.
 
 ## 5. Grid settings (`build_grid`)
 
-### Frequency grid: `period_max`, `f_max` (2 cycles/day) and `log_step` (0.01)
+### Frequency grid: automatic by default, with `period_max`, `f_max` (2 cycles/day) and `grid_safety` (3)
 
 The driver is a sum of sinusoids from a longest period $P_\text{max}$ up to
-$f_\text{max}$ cycles per day. Below a crossover frequency they are the
-harmonics of $P_\text{max}$, as in CREAM (Starkey et al. 2016); above it
-each frequency is a fixed fraction (`log_step`) above the last:
+at least $f_\text{max}$ cycles per day. Since October 2026 `build_grid()`
+chooses how many and where from the data (`log_step=None`,
+[frequency_grid.md](frequency_grid.md)):
 
-```math
-\omega_1 = \Delta\omega = \frac{2\pi}{P_\text{max}}, \qquad \omega_{k+1} = \omega_k + \max(\Delta\omega,\ s\,\omega_k), \qquad \omega_k \le 2\pi f_\text{max},
-```
+- **Why the grid matters.** A campaign of length $T$ resolves about one pair
+  of Fourier coefficients per $2\pi/T$ of bandwidth. Where the data constrain
+  each pair (high signal-to-noise per pair, $\rho$), the grid needs one mode
+  per pair, or the fit loses evidence and, worse, is biased: a coarse grid
+  favours broad responses and pushes the accretion rate and inclination up.
+  Where $\rho$ is small, modes can be sparse at almost no cost.
+- **How it is chosen.** Each light curve's power spectrum is fitted alone (a
+  smoothed random walk plus extra white noise, an exact Gaussian-process fit
+  taking seconds), giving $\rho(\omega)$ summed over light curves. The grid
+  spacing is then inversely proportional to $3\rho$ (`grid_safety`), within
+  limits, with an expected loss of at most 0.5 in log evidence.
+- **What it gives.** On 19 simulated campaigns it was converged (expected loss
+  about 1 or less) on all of them. The fixed 1 per cent grid used before was
+  not converged on 9 (long, high signal-to-noise, low black-hole mass or with
+  a driver light curve). Rich data get more modes than before (up to ~2.5x
+  for Fairall 9- or NGC 5548-length campaigns), sparse or noisy data fewer
+  (about half for two bands at SNR 30). `ef.grid_info` says what was chosen.
+- **The check after the fit.** `.optimise()` and `.fit()` end with
+  `ef.check_frequency_grid()`. It recomputes $\rho$ from the fitted model,
+  predicts the grid's loss, and warns above 2 (the prediction runs 1 to 4
+  times the exact loss) with a suggested grid
+  (`ef.grid_check`). Real light curves can carry more high-frequency
+  structure than the fitted model expects, which this check cannot see.
+- **Free-lag bands and driver light curves** are estimated as unsmoothed
+  random walks, as the model treats them. That is conservative: up to 2 to 4
+  times the modes the fitted model needed. `build_grid()` warns above 3000
+  modes.
 
-with $s$ = `log_step` and $P_\text{max} = 2\,(T + \tau_\text{max})$, $T$
-the baseline. $T + \tau_\text{max}$ is the window the driver must cover
-(the echo at the first observation depends on the driver up to
-$\tau_\text{max}$ earlier), and the factor of 2 lets the series represent
-trends longer than that window, which a red-noise driver always has. Until
-October 2026 the longest period was $T$ itself; on synthetic random-walk
-data that biased `log_mdot_msun_yr` and the inclination high, the fit absorbing the
-trends into long responses (`scripts/synthetic_recovery_grid.py`). The fit
-at the truth improved up to $P_\text{max} \approx 2(T + \tau_\text{max})$
-and was flat beyond it. Pass `period_max` to set it directly. Trends longer
+$P_\text{max} = 2\,(T + \tau_\text{max})$, $T$ the baseline.
+$T + \tau_\text{max}$ is the window the driver must cover (the echo at the
+first observation depends on the driver up to $\tau_\text{max}$ earlier),
+and the factor of 2 lets the series represent trends longer than that
+window, which a red-noise driver always has. Until October 2026 the longest
+period was $T$ itself; on synthetic random-walk data that biased
+`log_mdot_msun_yr` and the inclination high, the fit absorbing the trends
+into long responses (`scripts/synthetic_recovery_grid.py`). The automatic
+grid keeps the first 16 harmonics of $P_\text{max}$ for those trends, then
+spaces modes no closer than $2\pi/(T + \tau_\text{max})$, the window's own
+resolution: spacing every mode at $2\pi/P_\text{max}$ needed ~1.6x the modes
+for the same accuracy. Pass `period_max` to set it directly. Trends longer
 still are what the default linear background (section 7) is for.
 
-**Why harmonics, then log spacing.** Over a window of length $P_\text{max}$
-there is about one independent pair of Fourier coefficients per
-$1/P_\text{max}$ of bandwidth, so harmonics are the natural basis; a log
-grid packs near-duplicate modes in at low frequency. At high frequency the
-echoes are smoothed by the response and don't resolve individual harmonics:
-on the CREAM paper's synthetic tests a log grid there gave the same
-posteriors as harmonics all the way up, while harmonics to 2 cycles/day
-would need $2P_\text{max}$ modes (~1700 for an NGC 5548-length campaign, and
-a solve hundreds of times dearer).
+**The fixed grid, `log_step`.** `build_grid(log_step=0.01)` gives the grid
+that was the default until October 2026: harmonics of $P_\text{max}$, then a
+constant fractional step $s$ up to $f_\text{max}$,
 
-**Why a 1 per cent step.** The step sets where the spacing leaves the
-harmonics, at a period of $s\,P_\text{max}$. The CREAM paper's tests were
-100-day campaigns, where a 3 per cent step (the default until October 2026)
-crosses over at a 9-day period and was converged. On Fairall 9's 649-day
-campaign it crosses over at about 40 days, so the grid thins out across the
-10 to 40 day band where the echoes have structure: the evidence rose by about
-55 at a 1 per cent step and by only 1 more at 0.5 per cent, and the free lags
-in U and V shortened by about 0.45 days (2 to 3 sigma). The disc's
-temperature didn't move. A 1 per cent step was converged for both, so it is
-the default. It costs about twice the modes of 3 per cent: ~280 for a
-100-day campaign, ~320 for NGC 5548 and ~430 for Fairall 9.
+```math
+\omega_1 = \Delta\omega = \frac{2\pi}{P_\text{max}}, \qquad \omega_{k+1} = \omega_k + \max(\Delta\omega,\ s\,\omega_k), \qquad \omega_k \le 2\pi f_\text{max}.
+```
 
-**Why 2 cycles/day, whatever the cadence.** The echoes carry the driver's
+It is useful to reproduce earlier results. The step was 3 per cent until
+October 2026, then 1 per cent after Fairall 9's 649-day campaign showed 3 per
+cent thinned the 10 to 40 day band where its echoes have structure.
+
+**Why at least 2 cycles/day, whatever the cadence.** The echoes carry the driver's
 variability down to the sharpest feature of the response, its rise near
 zero lag, and high-SNR data resolve it. The earlier default stopped at a
 Nyquist-style limit from the cadence (a 1.6-day period for daily sampling):
 on the CREAM paper's high-SNR synthetic data the log posterior was up to
 ~530 lower than with the finer grid, and on its SNR-100 data the fits
 drifted towards high inclination and accretion rate. Modes the data can't
-constrain only cost time: their prior integrates them out. Raise `f_max`
+constrain only cost time: their prior integrates them out. The automatic
+grid goes beyond `f_max` (up to 4 `f_max`) where the estimated
+signal-to-noise is still high. Raise `f_max`
 for black holes much lighter than ~1e7 Msun, whose responses rise within
 hours; lower it to save time on low-SNR data. `dt_min` sets the upper limit
 as $\pi/\Delta t_\text{min}$ instead.

@@ -1808,12 +1808,12 @@ class EchoFit:
         the model at ``params`` (default: the direct solve's optimum, else the
         posterior medians) and predicts how much log evidence the grid loses
         against a continuum of modes (:mod:`discotau.frequency_grid`). Warns
-        above ~1 (``frequency_grid.CHECK_LOSS``). Runs automatically after
+        above 2 (``frequency_grid.CHECK_LOSS``). Runs automatically after
         ``.optimise()`` and ``.fit()``. Returns (and stores as
         ``self.grid_check``) the predicted loss, the grid's size, and the
         smallest grid the fitted model itself calls for (``suggested_freqs``;
         refit with ``ef.freqs = jnp.asarray(ef.grid_check["suggested_freqs"])``).
-        The prediction was within ~1.5x of the exact loss, on the safe side, in
+        The prediction was 1-4x the exact loss, on the safe side, in
         simulations; real light curves can carry more high-frequency structure
         than the fitted model expects, which it cannot see."""
         fg = _frequency_grid
