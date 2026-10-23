@@ -212,6 +212,7 @@ from typing import Dict, Optional
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import numpyro
 import numpyro.distributions as dist
 
@@ -318,6 +319,7 @@ def reverberation_model(
     inclination_prior: str = "isotropic",
     type1_opening_deg: float = TYPE1_OPENING_DEG,
     type1_width_deg: float = TYPE1_WIDTH_DEG,
+    gram_cache=None,
 ):
     """NumPyro model for multi-band reverberation-mapped light curves.
 
@@ -449,12 +451,14 @@ def reverberation_model(
             sigma_jitter_driver = _param("sigma_jitter_driver", dist.HalfNormal(jnp.mean(driver["yerr"])))
             sigma_eff_driver = jnp.sqrt((sigma_scale_driver * driver["yerr"]) ** 2 + sigma_jitter_driver ** 2)
         else:
+            sigma_scale_driver, sigma_jitter_driver = 1.0, 0.0
             sigma_eff_driver = driver["yerr"]
         if marginalise_linear:
             sin_wt, cos_wt = driver.get("basis") or _basis(freqs, driver["t"])
             blocks.append(dict(
                 name="driver", y=driver["y"], sigma=sigma_eff_driver, gain=S_driver,
-                S_cols=sin_wt, C_cols=cos_wt, known_offset=None if offset_is_linear else C_driver,
+                sin_wt=sin_wt, cos_wt=cos_wt, A=None, B=None, error=(sigma_scale_driver, sigma_jitter_driver),
+                known_offset=None if offset_is_linear else C_driver,
                 offset_loc=offset_loc, offset_sd=offset_sd, bg_cols=bg_basis_driver, bg_sd=bg_sd_driver,
             ))
         else:
@@ -540,15 +544,14 @@ def reverberation_model(
             sigma_jitter = _param(f"sigma_jitter_{band_name}", dist.HalfNormal(jnp.mean(d["yerr"])))
             sigma_eff = jnp.sqrt((sigma_scale * d["yerr"]) ** 2 + sigma_jitter ** 2)
         else:
+            sigma_scale, sigma_jitter = 1.0, 0.0
             sigma_eff = d["yerr"]
 
         if marginalise_linear:
-            # echo = sin_wt @ (S*A + C*B) + cos_wt @ (C*A - S*B), so these are
-            # the columns multiplying S and C (see forward_model.compute_echo).
             sin_wt, cos_wt = d.get("basis") or _basis(freqs, d["t"])
             blocks.append(dict(
                 name=band_name, y=d["y"], sigma=sigma_eff, gain=S_band,
-                S_cols=sin_wt * A - cos_wt * B, C_cols=sin_wt * B + cos_wt * A,
+                sin_wt=sin_wt, cos_wt=cos_wt, A=A, B=B, error=(sigma_scale, sigma_jitter),
                 known_offset=None if offset_is_linear else C_band,
                 offset_loc=offset_loc, offset_sd=offset_sd, bg_cols=bg_basis, bg_sd=bg_sd,
             ))
@@ -560,7 +563,7 @@ def reverberation_model(
             )
 
     if marginalise_linear:
-        _linear_marginal(blocks, prior_scale, draw_linear)
+        _linear_marginal(blocks, prior_scale, draw_linear, gram_cache)
 
 
 # Offset and gain priors are anchored to each light curve's own data, so they
@@ -679,6 +682,73 @@ def _marginal_solve(arrays, prior_scale, n_off, n_bg, layout, bg_layout, need_th
 
 # Testing hook: True makes _linear_marginal always factorise in parameter space.
 _FORCE_PARAMETER_SPACE = False
+# "gram": the marginal likelihood from precomputed Gram matrices (discotau.gram)
+# whenever EchoFit supplies them; "qr": always _marginal_solve's QR; "auto": the
+# Gram path when there are at least GRAM_MIN_POINTS_PER_PARAMETER data points
+# per linear parameter, else the QR. The QR costs ~(N + p) min(N, p)^2 (it works
+# in data space when N < p) and the Gram path ~p^3 whatever N is, so the Gram path
+# wins on long, well-sampled light curves and loses with few points: on simulated
+# sets (Kaggle CPU): potential and gradient 2-3x faster at N/p ~ 1.8 and 3.3,
+# whole solves 2x faster at N/p ~ 3.5 (Fairall 9's cadence), and 3x slower at
+# N/p ~ 0.6 (a 3-day cadence), where the QR's data-space form is cheap.
+MARGINAL_METHOD = "auto"
+GRAM_MIN_POINTS_PER_PARAMETER = 1.2
+
+
+# Passed as gram_cache, the linear-Gaussian likelihood is left out (a prior-only
+# potential, for discotau.exact_hessian).
+NULL_LIKELIHOOD = "null likelihood"
+
+
+def gram_in_use(kwargs) -> bool:
+    """Whether :func:`reverberation_model` with these keyword arguments
+    evaluates the marginal likelihood from the Gram cache (see
+    ``MARGINAL_METHOD``), without running it."""
+    cache = kwargs.get("gram_cache")
+    if cache is None or cache is NULL_LIKELIHOOD or not kwargs.get("marginalise_linear", False):
+        return False
+    curves = ([("driver", kwargs["driver"])] if kwargs.get("driver") is not None else []) + list(kwargs["bands"].items())
+    fixed = kwargs.get("fixed_params") or {}
+    if any(f"C_{name}" in fixed for name, _ in curves) or [n for n, _ in curves] != cache.names:
+        return False
+    if MARGINAL_METHOD == "gram":
+        return True
+    if MARGINAL_METHOD != "auto":
+        return False
+    n_data = sum(int(np.shape(d["y"])[0]) for _, d in curves)
+    n_bg = sum(0 if d.get("background_basis") is None else int(np.shape(d["background_basis"])[1]) for _, d in curves)
+    p_linear = 2 * int(np.shape(kwargs["freqs"])[0]) + len(curves) + n_bg
+    return n_data >= GRAM_MIN_POINTS_PER_PARAMETER * p_linear
+
+
+def _gram_inputs(blocks, prior_scale):
+    """Each block's per-mode ``(a, b) = gain * prior_sd * (A, B)`` (1 and 0 for a
+    driver light curve), error scale and jitter: the arguments of
+    :meth:`discotau.gram.GramCache.loglik_fn`."""
+    n_freq = prior_scale.shape[0]
+    ones, zeros = jnp.ones(n_freq), jnp.zeros(n_freq)
+    a = jnp.stack([b["gain"] * prior_scale * (ones if b["A"] is None else b["A"]) for b in blocks])
+    bb = jnp.stack([b["gain"] * prior_scale * (zeros if b["B"] is None else b["B"]) for b in blocks])
+    s = jnp.stack([jnp.asarray(b["error"][0], dtype=jnp.float32) for b in blocks])
+    j = jnp.stack([jnp.asarray(b["error"][1], dtype=jnp.float32) for b in blocks])
+    return a, bb, s, j
+
+
+def _design_rows(arrays, prior_scale, n_off, n_bg, layout, bg_layout):
+    """Each block's design-matrix rows over every linear parameter, as
+    :func:`_marginal_solve` builds them (for the predictions of the draws)."""
+    rows = []
+    for b, off, bg in zip(arrays, layout, bg_layout):
+        n = b["y"].shape[0]
+        onehot = jnp.zeros((n_off,))
+        if off is not None:
+            onehot = onehot.at[off].set(b["offset_sd"])
+        bg_part = jnp.zeros((n, n_bg))
+        if bg is not None:
+            bg_part = bg_part.at[:, bg[0]:bg[0] + bg[1]].set(b["bg_cols"] * b["bg_sd"])
+        rows.append(jnp.concatenate([b["gain"] * b["S_cols"] * prior_scale, b["gain"] * b["C_cols"] * prior_scale,
+                                     jnp.ones((n, 1)) * onehot[None, :], bg_part], axis=1))
+    return rows
 
 _RESPONSE_JIT: dict = {}
 
@@ -733,7 +803,7 @@ def _call_responses(fn, tau_grid, log_mdot_msun_yr, wavelengths, inclination, M_
     return [_call_response(fn, tau_grid, log_mdot_msun_yr, wl, inclination, M_BH, **kwargs) for wl in wavelengths]
 
 
-def _linear_marginal(blocks, prior_scale, draw_linear):
+def _linear_marginal(blocks, prior_scale, draw_linear, gram_cache=None):
     """Add the exact marginal likelihood of every light curve in ``blocks``
     (linear parameters integrated out) as a ``numpyro.factor`` and, if
     ``draw_linear``, draw the linear parameters from their conditional
@@ -746,7 +816,16 @@ def _linear_marginal(blocks, prior_scale, draw_linear):
     so the prior-mean offset is subtracted from that block's data first),
     then each block's slow-background coefficients, if it has any
     (``bg_cols``, ``(n, K)``; ``coefficient = bg_sd * theta``).
+
+    With a ``gram_cache`` (:class:`discotau.gram.GramCache`, which
+    ``EchoFit`` supplies) the likelihood can be evaluated from precomputed Gram
+    matrices in float64, independent of the number of data points; otherwise
+    by the QR of :func:`_marginal_solve`. ``MARGINAL_METHOD`` chooses (see
+    its comment).
     """
+    if gram_cache is NULL_LIKELIHOOD:
+        numpyro.factor("linear_marginal_loglik", jnp.zeros(()))
+        return
     n_freq = prior_scale.shape[0]
     offset_names = [b["name"] for b in blocks if b["known_offset"] is None]
     n_off = len(offset_names)
@@ -755,22 +834,46 @@ def _linear_marginal(blocks, prior_scale, draw_linear):
     for b in bg_blocks:
         bg_start[b["name"]] = n_bg
         n_bg += b["bg_cols"].shape[1]
-
+    for b in blocks:
+        # echo = sin_wt @ (S*A + C*B) + cos_wt @ (C*A - S*B): the columns
+        # multiplying S and C (see forward_model.compute_echo); the driver's
+        # are sin and cos themselves. Only the QR path and the draws use them.
+        if b["A"] is None:
+            b["S_cols"], b["C_cols"] = b["sin_wt"], b["cos_wt"]
+        else:
+            b["S_cols"] = b["sin_wt"] * b["A"] - b["cos_wt"] * b["B"]
+            b["C_cols"] = b["sin_wt"] * b["B"] + b["cos_wt"] * b["A"]
     arrays = [{k: b.get(k) for k in _BLOCK_ARRAYS} for b in blocks]
     layout = tuple(offset_names.index(b["name"]) if b["known_offset"] is None else None for b in blocks)
     bg_layout = tuple((bg_start[b["name"]], b["bg_cols"].shape[1]) if b.get("bg_cols") is not None else None
                       for b in blocks)
-    rows, theta_hat, R, loglik = _marginal_solve(arrays, prior_scale, n_off, n_bg, layout, bg_layout,
-                                                 draw_linear or _FORCE_PARAMETER_SPACE)
-    numpyro.factor("linear_marginal_loglik", loglik)
 
-    if not draw_linear:
-        return
-    p = R.shape[0]
-    # Conditional posterior is N(theta_hat, P^-1); with P = R^T R,
-    # theta_hat + R^-1 eps (eps ~ N(0, I)) has exactly that covariance.
-    eps = numpyro.sample("linear_eps", dist.Normal(0.0, 1.0).expand([p]).to_event(1))
-    theta = theta_hat + jax.scipy.linalg.solve_triangular(R, eps, lower=False)
+    n_data = sum(int(b["y"].shape[0]) for b in blocks)
+    p_linear = 2 * n_freq + n_off + n_bg
+    wanted = MARGINAL_METHOD == "gram" or (
+        MARGINAL_METHOD == "auto" and n_data >= GRAM_MIN_POINTS_PER_PARAMETER * p_linear)
+    use_gram = (gram_cache is not None and wanted and n_off == len(blocks)
+                and [b["name"] for b in blocks] == gram_cache.names and not _FORCE_PARAMETER_SPACE)
+    if use_gram:
+        a, bb, s, j = _gram_inputs(blocks, prior_scale)
+        numpyro.factor("linear_marginal_loglik", gram_cache.loglik_fn()(a, bb, s, j))
+        if not draw_linear:
+            return
+        mean, chol = gram_cache.conditional_fn()(a, bb, s, j)
+        # Conditional posterior N(mean, P^-1) with P = chol chol^T: mean + chol^-T eps.
+        eps = numpyro.sample("linear_eps", dist.Normal(0.0, 1.0).expand([mean.shape[0]]).to_event(1))
+        theta = mean + jax.scipy.linalg.solve_triangular(chol.T, eps, lower=False)
+        rows = _design_rows(arrays, prior_scale, n_off, n_bg, layout, bg_layout)
+    else:
+        rows, theta_hat, R, loglik = _marginal_solve(arrays, prior_scale, n_off, n_bg, layout, bg_layout,
+                                                     draw_linear or _FORCE_PARAMETER_SPACE)
+        numpyro.factor("linear_marginal_loglik", loglik)
+        if not draw_linear:
+            return
+        # Conditional posterior is N(theta_hat, P^-1); with P = R^T R,
+        # theta_hat + R^-1 eps (eps ~ N(0, I)) has exactly that covariance.
+        eps = numpyro.sample("linear_eps", dist.Normal(0.0, 1.0).expand([R.shape[0]]).to_event(1))
+        theta = theta_hat + jax.scipy.linalg.solve_triangular(R, eps, lower=False)
     S_raw = numpyro.deterministic("S_raw", theta[:n_freq])
     C_raw = numpyro.deterministic("C_raw", theta[n_freq:2 * n_freq])
     numpyro.deterministic("S", S_raw * prior_scale)

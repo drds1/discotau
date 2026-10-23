@@ -16,9 +16,11 @@ from numpyro.infer import MCMC, NUTS
 
 def _build_kernel(
     model: Callable, target_accept_prob: float, max_tree_depth: Optional[int],
-    init_strategy=None, dense_mass: bool = False,
+    init_strategy=None, dense_mass: bool = False, inverse_mass_matrix=None,
 ):
     nuts_kwargs = dict(target_accept_prob=target_accept_prob, dense_mass=dense_mass)
+    if inverse_mass_matrix is not None:
+        nuts_kwargs["inverse_mass_matrix"] = inverse_mass_matrix
     if max_tree_depth is not None:
         nuts_kwargs["max_tree_depth"] = max_tree_depth
     if init_strategy is not None:
@@ -39,6 +41,7 @@ def run_mcmc(
     progress_bar: bool = True,
     init_strategy=None,
     dense_mass: bool = False,
+    inverse_mass_matrix=None,
 ) -> MCMC:
     """Run NUTS on ``model(**model_kwargs)`` and return the fitted MCMC object.
 
@@ -99,7 +102,7 @@ def run_mcmc(
         Badness-of-Fit trace (``plotting.plot_bof``), and
         ``mcmc.print_summary()`` / ``arviz`` for diagnostics.
     """
-    kernel = _build_kernel(model, target_accept_prob, max_tree_depth, init_strategy, dense_mass)
+    kernel = _build_kernel(model, target_accept_prob, max_tree_depth, init_strategy, dense_mass, inverse_mass_matrix)
     mcmc = MCMC(
         kernel,
         num_warmup=num_warmup,

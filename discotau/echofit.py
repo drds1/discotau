@@ -672,7 +672,38 @@ class EchoFit:
             inclination_prior=self.inclination_prior,
             type1_opening_deg=self.type1_opening_deg,
             type1_width_deg=self.type1_width_deg,
+            gram_cache=self._gram_cache(bands_jax, driver_jax),
         )
+
+    def _gram_cache(self, bands_jax, driver_jax):
+        """The marginal likelihood's precomputed Gram matrices
+        (:class:`discotau.gram.GramCache`), one per frequency grid and set of
+        light curves, built on first use (only the marginalised model uses it).
+        Light curves are stacked as ``model._linear_marginal`` stacks them, the
+        driver light curve first."""
+        from . import gram as _gram
+        from .gram import GramCache
+        from .model import BACKGROUND_PRIOR_WIDTH, _offset_prior
+
+        curves = ([("driver", self.driver_data, driver_jax)] if self.driver_data is not None else []) + [
+            (name, d, bands_jax[name]) for name, d in self.bands.items()]
+        key = (_gram.HOST_METHOD, np.asarray(self.freqs).tobytes(), tuple(
+            (name, id(d), len(d["t"]), bool(d.get("fit_error_model", False)), d.get("background_order", 0))
+            for name, d, _ in curves))
+        cached = getattr(self, "_gram_cache_obj", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        spec = {}
+        for name, d, dj in curves:
+            loc, sd = _offset_prior(jnp.asarray(d["y"]))
+            bg = dj["background_basis"]
+            spec[name] = dict(t=np.asarray(d["t"]), y=np.asarray(d["y"]), yerr=np.asarray(d["yerr"]),
+                              error_model=bool(d.get("fit_error_model", False)), offset_loc=float(loc),
+                              offset_sd=float(sd), bg_cols=None if bg is None else np.asarray(bg),
+                              bg_sd=float(BACKGROUND_PRIOR_WIDTH * jnp.std(jnp.asarray(d["y"]))))
+        cache = GramCache(self.freqs, spec)
+        self._gram_cache_obj = (key, cache)
+        return cache
 
     def _sigma_drw_prior_scale(self) -> float:
         """Data-anchored scale for ``sigma_drw``'s ``HalfNormal`` prior (see
@@ -771,8 +802,9 @@ class EchoFit:
         if not init_from_optimum:
             from numpyro.infer import init_to_uniform
 
-            return _shifted_mdot_init(strategy=self._init_strategy(num_chains) or init_to_uniform,
-                                      shift=float(typical_log_mdot(self.M_BH)))
+            # No accretion-rate site without M_BH (free lags only): nothing to shift.
+            shift = 0.0 if self.M_BH is None else float(typical_log_mdot(self.M_BH))
+            return _shifted_mdot_init(strategy=self._init_strategy(num_chains) or init_to_uniform, shift=shift)
         if getattr(self, "optimum", None) is None:
             raise ValueError("fit(init_from_optimum=True) needs .optimise() to have been run first.")
         if num_chains != 1:
@@ -916,6 +948,7 @@ class EchoFit:
         progress_bar: bool = True,
         generate_report: bool = True,
         init_from_optimum: bool = False,
+        mass_from_optimum: bool = False,
     ):
         """Run NUTS and store the posterior samples on ``self.samples``.
 
@@ -952,6 +985,14 @@ class EchoFit:
             first) rather than the data-anchored default guess. Single-chain
             only, for the same reason as ``_init_strategy``'s: identical
             starts defeat multi-chain R-hat checks.
+        mass_from_optimum : bool
+            Start NUTS's (dense) inverse mass matrix from the direct solve
+            instead of the identity: the Laplace covariance of the nonlinear
+            parameters and, for the sampled model, the exact conditional
+            covariance of the linear ones at the optimum
+            (:meth:`_optimum_inverse_mass`). Warmup still adapts it; with the
+            right geometry from the first step it needs far less of it. Call
+            ``.optimise()`` first; not available with ``title=``.
 
         report_every : int, optional
             Only used on the checkpointed path. If given, ``report.html``
@@ -985,6 +1026,7 @@ class EchoFit:
                 num_warmup=num_warmup, num_samples=num_samples, num_chains=num_chains,
                 max_tree_depth=max_tree_depth, chain_method=chain_method, progress_bar=progress_bar,
                 init_strategy=self._fit_init_strategy(num_chains, init_from_optimum), dense_mass=dense_mass,
+                inverse_mass_matrix=self._optimum_inverse_mass() if mass_from_optimum else None,
             )
             self._samples_by_chain = self._add_linear_draws(
                 self.mcmc.get_samples(group_by_chain=True), rng_seed
@@ -996,6 +1038,8 @@ class EchoFit:
             return self
 
         # -- title given: checkpointed/resumable single-chain path --
+        if mass_from_optimum:
+            raise ValueError("fit(mass_from_optimum=True) is not supported with title= (checkpointed runs).")
         if num_chains != 1:
             warnings.warn(
                 f"EchoFit(title=...) checkpointing only supports num_chains=1; "
@@ -1313,11 +1357,25 @@ class EchoFit:
         def batch_potential(points):
             return np.array([float(potential_jit(jnp.asarray(x, dtype=z0.dtype))) for x in np.atleast_2d(points)])
 
+        # The scalar parameters' likelihood block exactly (discotau.exact_hessian)
+        # when the Gram path is in use; otherwise finite differences throughout.
+        from .exact_hessian import ExactHessian
+
+        exact = ExactHessian.create(reverberation_model, kwargs, unravel, z0, lambda x: objective(x)[1])
+        timings["exact_hessian"] = exact is not None
+
         def curvature(z, posterior_scale=False):
             # posterior_scale: check each eigenvalue over one posterior sd
             # (_posterior_scale_curvature); ~2 potential evaluations per
             # parameter, so only at each polished optimum, not every Newton step.
-            _, vals, vecs = _fd_hessian(lambda x: objective(x)[1], z, sd=scale["sd"], basis=scale["basis"])
+            if exact is not None:
+                sd = scale["sd"]
+                if scale["basis"] is not None:
+                    bv, bvec = scale["basis"]
+                    sd = np.sqrt(np.sum(bvec ** 2 / np.clip(np.abs(bv), 1e-12, None), axis=1))
+                vals, vecs = np.linalg.eigh(exact.hessian(z, sd))
+            else:
+                _, vals, vecs = _fd_hessian(lambda x: objective(x)[1], z, sd=scale["sd"], basis=scale["basis"])
             scale["basis"] = (vals, vecs)
             if posterior_scale:
                 f0 = float(batch_potential(np.asarray(z)[None])[0])
@@ -1327,7 +1385,7 @@ class EchoFit:
         def laplace_cov(vals, vecs):
             return (vecs / np.clip(vals, 1e-8, None)) @ vecs.T
 
-        def polish(result):
+        def polish(result, shared=None):
             # Damped, saddle-free Newton: step = (|H| + damping I)^-1 grad, in
             # H's eigenbasis, with the damping raised until the step lowers the
             # potential and relaxed after each success (Levenberg-Marquardt
@@ -1336,22 +1394,43 @@ class EchoFit:
             # fit: tiny or negative eigenvalues there make the undamped step
             # enormous, every backtracked fraction of it still went uphill, and
             # restarts stopped 4-110 sd short of the optimum along the ridge.
+            #
+            # The Hessian is reused across steps (a chord method) and refreshed
+            # only when a step fails or progress stalls: L-BFGS has already
+            # brought the restart close to the peak, and each finite-difference
+            # Hessian costs 2-4 gradients per parameter (most of the solve's
+            # time on many light curves: 83 per cent of a 3.5 h NGC 5548 fit).
+            # ``shared``: an already polished optimum this restart started next
+            # to; its Hessian is used throughout and the restart only counts as
+            # reaching it if the Newton steps converge there.
             z, f = np.asarray(result.x, dtype=np.float64), float(result.fun)
             if not np.isfinite(f):
                 return None
-            # Each restart's first Hessian from its own L-BFGS scale: carrying the
-            # previous restart's eigenvectors (another point) over left one
-            # restart's Hessian degenerate (a clipped eigenvalue, a 1e4 sd
-            # "posterior" width) on a ugriz synthetic set.
-            scale["sd"], scale["basis"] = _lbfgs_sd(result), None
-            vals, vecs = curvature(z)
-            n_newton, offset_in_sd, damping = 0, np.inf, 0.0
-            for _ in range(20):
+            if shared is not None:
+                vals, vecs = shared["eigvals"], shared["vecs"]
+            else:
+                # Each restart's first Hessian from its own L-BFGS scale: carrying the
+                # previous restart's eigenvectors (another point) over left one
+                # restart's Hessian degenerate (a clipped eigenvalue, a 1e4 sd
+                # "posterior" width) on a ugriz synthetic set.
+                scale["sd"], scale["basis"] = _lbfgs_sd(result), None
+                vals, vecs = curvature(z)
+            n_newton, offset_in_sd, damping, since_refresh = 0, np.inf, 0.0, 0
+            previous = np.inf
+            for _ in range(40):
                 grad = objective(z)[1]
                 cov = laplace_cov(vals, vecs)
                 offset_in_sd = float(np.max(np.abs(cov @ grad) / np.sqrt(np.diag(cov))))
                 if offset_in_sd < 0.01:
                     break
+                stalled = since_refresh >= 5 or offset_in_sd > 0.7 * previous
+                if stalled and since_refresh > 0:
+                    if shared is not None:
+                        return "unshared"
+                    vals, vecs = curvature(z)
+                    since_refresh = 0
+                    continue
+                previous = offset_in_sd
                 grad_eig = vecs.T @ grad
                 floor = 1e-6 * float(np.max(np.abs(vals)))
                 for _ in range(15):
@@ -1361,21 +1440,51 @@ class EchoFit:
                         break
                     damping = max(10.0 * damping, floor)
                 else:
-                    break
+                    if shared is not None or since_refresh == 0:
+                        break
+                    vals, vecs = curvature(z)  # stale Hessian: refresh and retry
+                    since_refresh = 0
+                    continue
                 z, f = z - step, f_new
                 damping /= 10.0
-                vals, vecs = curvature(z)
                 n_newton += 1
+                since_refresh += 1
+            if shared is not None:
+                cov = laplace_cov(vals, vecs)
+                offset_in_sd = float(np.max(np.abs(cov @ objective(z)[1]) / np.sqrt(np.diag(cov))))
+                if offset_in_sd >= 0.01:
+                    return "unshared"
+                return dict(z=z, f=f, eigvals=vals, vecs=vecs, cov=cov, n_newton=n_newton,
+                            offset_in_sd=offset_in_sd, curvature_corrections=shared["curvature_corrections"],
+                            shared_hessian=True)
             # Judge convergence on the posterior-scale curvature: tiny ripples in
             # the potential can make the pointwise Hessian claim a huge remaining
             # step where the peak has in fact been reached.
             vals, vecs = curvature(z, posterior_scale=True)
             cov = laplace_cov(vals, vecs)
             offset_in_sd = float(np.max(np.abs(cov @ objective(z)[1]) / np.sqrt(np.diag(cov))))
-            return dict(z=z, f=f, eigvals=vals, cov=cov, n_newton=n_newton, offset_in_sd=offset_in_sd,
-                        curvature_corrections=corrections["n"])
+            return dict(z=z, f=f, eigvals=vals, vecs=vecs, cov=cov, n_newton=n_newton, offset_in_sd=offset_in_sd,
+                        curvature_corrections=corrections["n"], shared_hessian=False)
 
-        polished = [polish(r) for r in results]
+        # Best first, so a restart that ends next to an optimum already polished
+        # (within a posterior sd of it) is polished with that optimum's Hessian:
+        # only restarts landing somewhere new pay for Hessians of their own.
+        polished = [None] * len(results)
+        own = []
+        for i in sorted(range(len(results)), key=lambda i: results[i].fun if np.isfinite(results[i].fun) else np.inf):
+            near = None
+            for q in own:
+                sd_q = np.sqrt(np.diag(q["cov"]))
+                if np.max(np.abs(np.asarray(results[i].x) - q["z"]) / sd_q) < 1.0:
+                    near = q
+                    break
+            out = polish(results[i], shared=near) if near is not None else None
+            if out is None or out == "unshared":
+                out = polish(results[i])
+                if out is not None:
+                    own.append(out)
+            polished[i] = out
+        timings["hessians_shared"] = int(sum(1 for q in polished if q is not None and q["shared_hessian"]))
 
         def laplace_log_evidence(p):
             # -U + 1/2 ln det(cov) (+ a constant): the posterior mass near the
@@ -1646,6 +1755,94 @@ class EchoFit:
             if name in trace and name not in self.fixed_params:
                 values[name] = np.asarray(trace[name]["value"])
         return values
+
+    def _optimum_inverse_mass(self) -> dict:
+        """A starting inverse mass matrix for NUTS from the direct solve,
+        ``{tuple of site names: matrix}`` in NumPyro's flattened unconstrained
+        coordinates (sites in sorted order): the Laplace covariance for the
+        nonlinear parameters and, when the fit samples the linear ones, their
+        exact conditional covariance ``P^-1`` at the optimum (Gram cache),
+        scaled to each offset's and background's prior width. Cross terms
+        between the two blocks are left at zero. Warmup still adapts it; it
+        only starts from the solve's geometry instead of the identity."""
+        from jax.flatten_util import ravel_pytree
+        from numpyro import handlers
+        from numpyro.infer import init_to_value
+        from numpyro.infer.util import initialize_model
+
+        if getattr(self, "laplace_covariance", None) is None:
+            raise ValueError("fit(mass_from_optimum=True) needs .optimise() to have been run first.")
+        values = self._optimum_init_values()
+        kw = self._model_kwargs()
+        nuts_z = initialize_model(jax.random.PRNGKey(0), reverberation_model, model_kwargs=kw,
+                                  init_strategy=init_to_value(values=values), validate_grad=False).param_info.z
+        marg_kw = dict(kw, marginalise_linear=True)
+        marg_z = _initialize_marginal_model(0, marg_kw, init_to_value(values=values), self.M_BH).param_info.z
+
+        def layout(z):
+            out, i = {}, 0
+            for name in sorted(z):
+                n = int(np.size(z[name]))
+                out[name] = (i, n)
+                i += n
+            return out, i
+
+        nuts_lay, D = layout(nuts_z)
+        marg_lay, _ = layout(marg_z)
+        M = np.zeros((D, D))
+        cov = np.asarray(self.laplace_covariance, dtype=np.float64)
+        shared = [n for n in nuts_lay if n in marg_lay]
+        for a in shared:
+            ia, na = nuts_lay[a]
+            ja, _ = marg_lay[a]
+            for b in shared:
+                ib, nb = nuts_lay[b]
+                jb, _ = marg_lay[b]
+                M[ia:ia + na, ib:ib + nb] = cov[ja:ja + na, jb:jb + nb]
+        linear = [n for n in nuts_lay if n not in marg_lay]
+        if linear:
+            cache = marg_kw["gram_cache"]
+            grabbed = {}
+            original = _model._linear_marginal
+
+            def grab(blocks, prior_scale, draw_linear, gram_cache=None):
+                grabbed["inputs"] = _model._gram_inputs(blocks, prior_scale)
+                grabbed["blocks"] = blocks
+                return original(blocks, prior_scale, draw_linear, gram_cache)
+
+            _model._linear_marginal = grab
+            try:
+                handlers.trace(handlers.substitute(handlers.seed(reverberation_model, 0), values)).get_trace(**marg_kw)
+            finally:
+                _model._linear_marginal = original
+            Pinv = np.linalg.inv(cache.precision(*grabbed["inputs"]))
+            K = len(self.freqs)
+            # Gram layout: S_raw, C_raw, one offset per light curve, then backgrounds.
+            idx, scale, bg0 = {"S_raw": np.arange(K), "C_raw": np.arange(K, 2 * K)}, {}, 2 * K + cache.n_off
+            for i, b in enumerate(grabbed["blocks"]):
+                idx[f"C_{b['name']}"] = np.array([2 * K + i])
+                scale[f"C_{b['name']}"] = float(b["offset_sd"])
+                if b.get("bg_cols") is not None:
+                    kb = b["bg_cols"].shape[1]
+                    idx[f"bg_{b['name']}"] = np.arange(bg0, bg0 + kb)
+                    scale[f"bg_{b['name']}"] = float(b["bg_sd"])
+                    bg0 += kb
+            for a in linear:
+                ia, na = nuts_lay[a]
+                if a not in idx:
+                    M[ia:ia + na, ia:ia + na] = np.eye(na)
+                    continue
+                for b in linear:
+                    if b not in idx:
+                        continue
+                    ib, nb = nuts_lay[b]
+                    M[ia:ia + na, ib:ib + nb] = scale.get(a, 1.0) * scale.get(b, 1.0) * Pinv[np.ix_(idx[a], idx[b])]
+        for n in nuts_lay:  # anything neither block covers (none expected)
+            i, k = nuts_lay[n]
+            if not M[i:i + k, i:i + k].any():
+                M[i:i + k, i:i + k] = np.eye(k)
+        M = 0.5 * (M + M.T)
+        return {tuple(sorted(nuts_lay)): jnp.asarray(M, dtype=jnp.float32)}
 
     def _linear_draw_sites(self) -> list:
         """Site names :meth:`_add_linear_draws` adds."""

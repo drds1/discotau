@@ -77,6 +77,11 @@ DEFAULT_GRID_PARAMS = ("log_mdot_msun_yr", "cos_inclination", "temperature_slope
 # broad plateau at ~e^-10 relative density (responses running far beyond the
 # lag grid 10-15 dex above typical_log_mdot) stretch the grid to ~1 dex per row.
 MODE_DROP = 12.0
+# Memory for scoring the importance-sampling draws through the vmapped
+# potential: each point holds its own (N + p) x p marginal factorisation, so a
+# fixed chunk of 250 reached ~20 GB at ~1150 driver modes on ~3000 points and
+# was killed at Kaggle's 31 GB. The chunk is sized to stay under this budget.
+DRAW_BATCH_BYTES = 2.0e9
 
 
 def lbfgs_sd(result) -> np.ndarray:
@@ -174,6 +179,18 @@ def _support_bounds(transform) -> tuple:
     return lo, hi
 
 
+def _draw_chunk(kwargs, budget=None, max_chunk=250) -> int:
+    """Draws scored per vmapped call: about ``budget`` bytes of marginal
+    factorisations, ``(N + p) x p`` float32 values held a few times over per
+    point (N data points, p linear parameters)."""
+    budget = DRAW_BATCH_BYTES if budget is None else budget
+    curves = list(kwargs.get("bands", {}).values()) + ([kwargs["driver"]] if kwargs.get("driver") else [])
+    n = sum(int(np.size(d["t"])) for d in curves)
+    p = 2 * int(np.size(kwargs.get("freqs", []))) + 4 * len(curves)
+    per_point = 4.0 * 4.0 * (n + p) * max(p, 1)
+    return int(np.clip(budget // max(per_point, 1.0), 1, max_chunk))
+
+
 class _Problem:
     """The potential split into outer (gridded) and inner (Laplace) parts."""
 
@@ -193,6 +210,7 @@ class _Problem:
         self.transforms = _transforms(model, kwargs, self.names)
         potential = lambda z: info.potential_fn(self.unravel(z))
         self.batch_potential = jax.jit(jax.vmap(potential))
+        self.draw_chunk = _draw_chunk(kwargs)
         # One compiled gradient serves everything: the joint optimisations, the
         # inner solves (its inner components) and every Hessian (finite
         # differences of it, fd_hessian / hessian below). Separately compiled
@@ -206,6 +224,13 @@ class _Problem:
         self.assemble = assemble
         self.n_grad = 0
         self.n_hess = 0
+        # The scalar parameters' likelihood block exactly when the Gram path is
+        # in use (discotau.exact_hessian): an inner Hessian then costs a few
+        # finite-difference columns (outer and non-scalar inner parameters)
+        # instead of 2 gradients per inner parameter.
+        from .exact_hessian import ExactHessian
+
+        self.exact = ExactHessian.create(model, kwargs, self.unravel, self.z0, self.full_grad)
 
     def _z(self, zr, zo):
         z = np.empty(self.z0.size)
@@ -240,6 +265,12 @@ class _Problem:
         self.n_hess += 1
         z = self._z(zr, zo)
         vals, vecs = np.linalg.eigh(0.5 * (h_ref + h_ref.T))
+        if self.exact is not None:
+            sd = np.full(z.size, 0.1)  # outer coordinates: steps of 0.01 unconstrained units
+            sd[self.inner] = np.sqrt(np.sum(vecs ** 2 / np.clip(np.abs(vals), 1e-12, None), axis=1))
+            H = self.exact.hessian(z, sd)
+            h_rr = 0.5 * (H[np.ix_(self.inner, self.inner)] + H[np.ix_(self.inner, self.inner)].T)
+            return h_rr, H[np.ix_(self.inner, self.outer)]
         for attempt in range(2):
             steps = np.clip(0.1 / np.sqrt(np.clip(np.abs(vals), 1e-12, None)), 1e-5, 1.0)
             cols = []
@@ -337,7 +368,7 @@ def _polish(prob, objective, z, sd=None, max_iter=20, tol=0.01):
     f, g = objective(z)
     damping, basis = 0.0, None
     for _ in range(max_iter):
-        h, raw_vals, vecs = fd_hessian(prob.full_grad, z, sd=sd, basis=basis)
+        h, raw_vals, vecs = _full_hessian(prob, z, sd=sd, basis=basis)
         basis = (raw_vals, vecs)
         vals = np.clip(np.abs(raw_vals), 1e-8 * max(np.abs(raw_vals).max(), 1e-12), None)
         ge = vecs.T @ g
@@ -354,8 +385,22 @@ def _polish(prob, objective, z, sd=None, max_iter=20, tol=0.01):
         z, f, g = z - step, f_new, g_new
         damping /= 10.0
     else:
-        h = fd_hessian(prob.full_grad, z, basis=basis)[0]
+        h = _full_hessian(prob, z, basis=basis)[0]
     return z, f, h
+
+
+def _full_hessian(prob, z, sd=None, basis=None):
+    """``(H, vals, vecs)`` of the whole potential at ``z``: with the scalar
+    parameters' likelihood block exact when the Gram path is in use
+    (``prob.exact``), else :func:`fd_hessian`."""
+    if prob.exact is None:
+        return fd_hessian(prob.full_grad, z, sd=sd, basis=basis)
+    if basis is not None:
+        vals, vecs = basis
+        sd = np.sqrt(np.sum(vecs ** 2 / np.clip(np.abs(vals), 1e-12, None), axis=1))
+    h = prob.exact.hessian(np.asarray(z, dtype=np.float64), sd)
+    vals, vecs = np.linalg.eigh(h)
+    return h, vals, vecs
 
 
 def _saddle_free(h):
@@ -753,8 +798,9 @@ def run(model, kwargs, info, num_samples: int = 1000, rng_seed: int = 0,
             parts += list(np.log(frac[1:]) + modes_log_q_z(z_draws[j]) - log_jac[j])
         top = max(parts)
         log_q[j] = top + np.log(np.sum(np.exp(np.array(parts) - top))) if np.isfinite(top) else -np.inf
-    u = np.concatenate([np.asarray(prob.batch_potential(jnp.asarray(z_draws[i:i + 250], dtype=prob.dtype)))
-                        for i in range(0, num_samples, 250)]).astype(np.float64)
+    c = prob.draw_chunk
+    u = np.concatenate([np.asarray(prob.batch_potential(jnp.asarray(z_draws[i:i + c], dtype=prob.dtype)))
+                        for i in range(0, num_samples, c)]).astype(np.float64)
     log_target = -u - log_jac
     log_w = np.where(np.isfinite(log_target), log_target - log_q, -np.inf)
     good = np.isfinite(log_w)
