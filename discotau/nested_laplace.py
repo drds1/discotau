@@ -224,6 +224,13 @@ class _Problem:
         self.assemble = assemble
         self.n_grad = 0
         self.n_hess = 0
+        # The scalar parameters' likelihood block exactly when the Gram path is
+        # in use (discotau.exact_hessian): an inner Hessian then costs a few
+        # finite-difference columns (outer and non-scalar inner parameters)
+        # instead of 2 gradients per inner parameter.
+        from .exact_hessian import ExactHessian
+
+        self.exact = ExactHessian.create(model, kwargs, self.unravel, self.z0, self.full_grad)
 
     def _z(self, zr, zo):
         z = np.empty(self.z0.size)
@@ -258,6 +265,12 @@ class _Problem:
         self.n_hess += 1
         z = self._z(zr, zo)
         vals, vecs = np.linalg.eigh(0.5 * (h_ref + h_ref.T))
+        if self.exact is not None:
+            sd = np.full(z.size, 0.1)  # outer coordinates: steps of 0.01 unconstrained units
+            sd[self.inner] = np.sqrt(np.sum(vecs ** 2 / np.clip(np.abs(vals), 1e-12, None), axis=1))
+            H = self.exact.hessian(z, sd)
+            h_rr = 0.5 * (H[np.ix_(self.inner, self.inner)] + H[np.ix_(self.inner, self.inner)].T)
+            return h_rr, H[np.ix_(self.inner, self.outer)]
         for attempt in range(2):
             steps = np.clip(0.1 / np.sqrt(np.clip(np.abs(vals), 1e-12, None)), 1e-5, 1.0)
             cols = []
@@ -355,7 +368,7 @@ def _polish(prob, objective, z, sd=None, max_iter=20, tol=0.01):
     f, g = objective(z)
     damping, basis = 0.0, None
     for _ in range(max_iter):
-        h, raw_vals, vecs = fd_hessian(prob.full_grad, z, sd=sd, basis=basis)
+        h, raw_vals, vecs = _full_hessian(prob, z, sd=sd, basis=basis)
         basis = (raw_vals, vecs)
         vals = np.clip(np.abs(raw_vals), 1e-8 * max(np.abs(raw_vals).max(), 1e-12), None)
         ge = vecs.T @ g
@@ -372,8 +385,22 @@ def _polish(prob, objective, z, sd=None, max_iter=20, tol=0.01):
         z, f, g = z - step, f_new, g_new
         damping /= 10.0
     else:
-        h = fd_hessian(prob.full_grad, z, basis=basis)[0]
+        h = _full_hessian(prob, z, basis=basis)[0]
     return z, f, h
+
+
+def _full_hessian(prob, z, sd=None, basis=None):
+    """``(H, vals, vecs)`` of the whole potential at ``z``: with the scalar
+    parameters' likelihood block exact when the Gram path is in use
+    (``prob.exact``), else :func:`fd_hessian`."""
+    if prob.exact is None:
+        return fd_hessian(prob.full_grad, z, sd=sd, basis=basis)
+    if basis is not None:
+        vals, vecs = basis
+        sd = np.sqrt(np.sum(vecs ** 2 / np.clip(np.abs(vals), 1e-12, None), axis=1))
+    h = prob.exact.hessian(np.asarray(z, dtype=np.float64), sd)
+    vals, vecs = np.linalg.eigh(h)
+    return h, vals, vecs
 
 
 def _saddle_free(h):
