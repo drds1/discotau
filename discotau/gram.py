@@ -400,7 +400,7 @@ class GramCache:
                 beta = np.zeros(N)
                 beta[r] += Zt @ u
                 beta += Z @ g
-                info.append(dict(kind=kind, k=k, Zt=Zt, B=Bt, g=g, C=C, F=C @ Sg, beta=beta, d1=None))
+                info.append(dict(kind=kind, k=k, Zt=Zt, B=Bt, g=g, C=C, F=C @ Sg, beta=beta, d1=None, v=g - Bt @ u))
             else:
                 e2 = blocks[k]["e2"]
                 d1 = 2.0 * (s[k] ** 2 * e2 if kind == "log_s" else np.full(sizes[k], j[k] ** 2))
@@ -421,11 +421,21 @@ class GramCache:
         for i_, ti in enumerate(info):
             for i2 in range(i_, n):
                 tj = info[i2]
-                # T2 = -beta_t^T Q beta_t'
-                h = -(ti["beta"] @ (w * tj["beta"]) - ZWb[i_] @ Sg @ ZWb[i2])
                 same = i_ == i2
+                if not (ti["kind"] == "lambda" and tj["kind"] == "lambda"):
+                    # T2 = -beta_t^T Q beta_t'
+                    h = -(ti["beta"] @ (w * tj["beta"]) - ZWb[i_] @ Sg @ ZWb[i2])
                 if ti["kind"] == "lambda" and tj["kind"] == "lambda":
-                    h += ti["g"] @ tj["g"]                                     # T1
+                    # T1 + T2 together: separately each is ~1e3 times the sum
+                    # (5e7 against 2e4 on a small test set) and the p-space T2
+                    # lost ~3e-6 of it in float64. With Q beta_t' =
+                    # W Z_t' u + W Z S (g_t' - B_t' u), T1 + T2 =
+                    # [t = t'] g_t . u - u^T Z_t'^T W Z_t u + v_t^T S v_t', v = g - B u.
+                    h = ti["v"] @ Sg @ tj["v"]
+                    if ti["k"] == tj["k"]:
+                        r = rows_of[ti["k"]]
+                        Zu = ti["Zt"] @ u
+                        h -= Zu @ (w[r] * Zu)
                     t3 = -np.sum(tj["B"] * ti["C"])                            # + tr(B_t'^T S B_t) inside -[...]
                     if ti["k"] == tj["k"]:
                         r = rows_of[ti["k"]]
@@ -435,7 +445,7 @@ class GramCache:
                         Gbb, t3_same = None, 0.0
                     h += -(t3_same + t3)                                       # -tr(Z_t'^T Q Z_t)
                     if same:
-                        h += ti["g"] @ u - np.trace(ti["C"])                   # T1, T3 (Z_tt = Z_t)
+                        h += ti["g"] @ u - np.trace(ti["C"])                   # T1 (Z_tt = Z_t), T3
                     d = np.sum(ti["C"] * tj["C"].T)
                     gterm = np.sum(ti["C"].T * tj["C"])
                     # (e)(t,t') + (e)(t',t): tr(Z_t'^T W Z_t (I - S)) - tr(B_t'^T S B_t (I - S)), and swapped
