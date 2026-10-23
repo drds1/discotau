@@ -236,3 +236,65 @@ def test_auto_uses_gram_only_with_enough_points_per_linear_parameter(data, monke
         log_density(model.reverberation_model, (), ef._model_kwargs(), params)
         assert bool(calls) == expect_qr
         monkeypatch.setattr(model, "_marginal_solve", original)
+
+
+def _host_inputs(ef, params):
+    """The Gram cache and its (a, b, s, j) at ``params``, from the model itself."""
+    from numpyro import handlers
+
+    marg = dict(ef._model_kwargs(), marginalise_linear=True)
+    grabbed = {}
+    original = model._linear_marginal
+
+    def grab(blocks, prior_scale, draw_linear, gram_cache=None):
+        grabbed["x"] = [np.asarray(v, dtype=np.float64) for v in model._gram_inputs(blocks, prior_scale)]
+        return original(blocks, prior_scale, draw_linear, gram_cache)
+
+    model._linear_marginal = grab
+    try:
+        handlers.trace(handlers.substitute(handlers.seed(model.reverberation_model, 0), params)).get_trace(**marg)
+    finally:
+        model._linear_marginal = original
+    return marg["gram_cache"], grabbed["x"]
+
+
+@pytest.mark.parametrize("error_model", [(), ("g", "driver")])
+def test_scalar_hessian_matches_finite_differences(data, error_model, host):
+    ef = _echofit(data, driver=True, error_model=error_model)
+    params = _params(ef, 8)
+    for n in error_model:
+        params[f"sigma_jitter_{n}"] = jnp.asarray(0.4 * float(np.mean(data["bands"]["g"]["yerr"])))
+    cache, (a, b, s, j) = _host_inputs(ef, params)
+    H, names = cache.scalar_hessian(a, b, s, j)
+
+    def grad(x):
+        # x: the log offsets of every parameter in ``names``
+        aa, bb, ss, jj = a.copy(), b.copy(), s.copy(), j.copy()
+        for v, (kind, k) in zip(x, names):
+            if kind == "lambda":
+                aa[k] *= np.exp(v)
+                bb[k] *= np.exp(v)
+            elif kind == "log_s":
+                ss[k] *= np.exp(v)
+            else:
+                jj[k] *= np.exp(v)
+        _, da, db, ds, dj = cache.value_and_grad(aa, bb, ss, jj)
+        out = []
+        for kind, k in names:
+            if kind == "lambda":
+                out.append(float(da[k] @ aa[k] + db[k] @ bb[k]))
+            elif kind == "log_s":
+                out.append(float(ds[k] * ss[k]))
+            else:
+                out.append(float(dj[k] * jj[k]))
+        return np.array(out)
+
+    n = len(names)
+    eps = 1e-4
+    fd = np.empty((n, n))
+    for i in range(n):
+        e = np.zeros(n)
+        e[i] = eps
+        fd[:, i] = (grad(e) - grad(-e)) / (2 * eps)
+    fd = 0.5 * (fd + fd.T)
+    assert np.allclose(H, fd, rtol=2e-4, atol=2e-4 * np.abs(fd).max()), np.max(np.abs(H - fd))

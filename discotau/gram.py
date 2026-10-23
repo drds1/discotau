@@ -120,9 +120,10 @@ class GramCache:
             E = np.column_stack(cols)
             wt = np.outer(t, w)
             mode = self._mode(bool(c["error_model"]))
-            blk = dict(name=name, e2=e2, e_idx=np.array(idx), mode=mode, projected=bool(c["error_model"]))
+            blk = dict(name=name, e2=e2, e_idx=np.array(idx), mode=mode, projected=bool(c["error_model"]),
+                       sin=np.sin(wt), cos=np.cos(wt), E=E, yt=yt)
             if mode == "dense":
-                blk.update(sin=np.sin(wt), cos=np.cos(wt), E=E, yt=yt, rows=slice(row0, row0 + len(t)))
+                blk.update(rows=slice(row0, row0 + len(t)))
                 row0 += len(t)
             else:
                 Phi = np.hstack([np.sin(wt), np.cos(wt)])
@@ -336,6 +337,132 @@ class GramCache:
         self.build()
         a, b, s, j = (np.asarray(x, dtype=np.float64) for x in (a, b, s, j))
         return self._assemble(a, b, s, j)[0]
+
+    def scalar_hessian(self, a, b, s, j):
+        """Exact Hessian of the log likelihood with respect to every light
+        curve's log scale ``lambda_b`` (``a, b -> e^dlambda (a, b)``: the log of
+        gain_b * sigma_drw) and, for light curves with the error model, the logs
+        of its error scale and jitter. Returns ``(H, names)`` with ``names`` the
+        ``("lambda" | "log_s" | "log_j", block index)`` of each row.
+
+        With K = D + Z Z^T, Q = K^-1, alpha = Q y:
+        d2L = 1/2 a^T K_tt' a - a^T K_t Q K_t' a - 1/2 tr(Q K_tt') + 1/2 tr(Q K_t Q K_t'),
+        moved into p x p quantities through Z^T Q = S Z^T W, Q Z = W Z S,
+        Z^T a = u and Z^T Q Z = I - S (S = P^-1); only the noise-noise term
+        sum_ik Q_ik^2 D_t,i D_t',k needs Q itself, formed once (O(N^2 p))."""
+        self.build()
+        a, b, s, j = (np.asarray(x, dtype=np.float64) for x in (a, b, s, j))
+        K, p = self.K, self.p
+        blocks = self._blocks
+        sizes = [len(blk["e2"]) for blk in blocks]
+        starts = np.cumsum([0] + sizes)
+        N = int(starts[-1])
+        Z = np.zeros((N, p))
+        Zth = []
+        Dvec = np.empty(N)
+        y = np.empty(N)
+        for k, blk in enumerate(blocks):
+            r = slice(starts[k], starts[k + 1])
+            Z[r, :K] = blk["sin"] * a[k] - blk["cos"] * b[k]
+            Z[r, K:2 * K] = blk["sin"] * b[k] + blk["cos"] * a[k]
+            Z[r, blk["e_idx"]] = blk["E"]
+            Dvec[r] = s[k] ** 2 * blk["e2"] + j[k] ** 2
+            y[r] = blk["yt"]
+        w = 1.0 / Dvec
+        WZ = Z * w[:, None]
+        P = np.eye(p) + Z.T @ WZ
+        cf = sla.cho_factor(P, lower=True, check_finite=False)
+        Sg = sla.cho_solve(cf, np.eye(p), check_finite=False)
+        u = Sg @ (WZ.T @ y)
+        alpha = w * (y - Z @ u)
+        V = WZ @ Sg                                   # Q Z = W Z S
+        Qdiag = w - np.einsum("ij,ij->i", V, WZ)      # diag(W - W Z S Z^T W)
+        # parameters: (kind, block, D_t, D_tt) with D_t, D_tt per-row vectors on the block
+        params = []
+        for k, blk in enumerate(blocks):
+            params.append(("lambda", k))
+        for k, blk in enumerate(blocks):
+            if blk["projected"]:
+                params.append(("log_s", k))
+                params.append(("log_j", k))
+        n = len(params)
+        rows_of = [slice(starts[k], starts[k + 1]) for k in range(len(blocks))]
+        # per-parameter pieces
+        info = []
+        for kind, k in params:
+            r = rows_of[k]
+            if kind == "lambda":
+                Zt = np.zeros((sizes[k], p))
+                Zt[:, :2 * K] = Z[r, :2 * K]
+                Bt = WZ[r].T @ Zt                     # Z^T W Z_t (only block rows)
+                g = Zt.T @ alpha[r]                   # Z_t^T alpha
+                C = Sg @ Bt                           # S B_t
+                beta = np.zeros(N)
+                beta[r] += Zt @ u
+                beta += Z @ g
+                info.append(dict(kind=kind, k=k, Zt=Zt, B=Bt, g=g, C=C, F=C @ Sg, beta=beta, d1=None))
+            else:
+                e2 = blocks[k]["e2"]
+                d1 = 2.0 * (s[k] ** 2 * e2 if kind == "log_s" else np.full(sizes[k], j[k] ** 2))
+                X = (Z[r] * (w[r] ** 2 * d1)[:, None]).T @ Z[r]   # Z^T W D_t W Z
+                beta = np.zeros(N)
+                beta[r] = d1 * alpha[r]
+                info.append(dict(kind=kind, k=k, d1=d1, d2=2.0 * d1, SX=Sg @ X, beta=beta))
+        noise = [i for i, it in enumerate(info) if it["kind"] != "lambda"]
+        if noise:
+            Q = np.diag(w) - V @ WZ.T                 # K^-1, formed once
+            Dm = np.zeros((N, len(noise)))
+            for c, i in enumerate(noise):
+                Dm[rows_of[info[i]["k"]], c] = info[i]["d1"]
+            QQD = (Q * Q) @ Dm                        # sum_k Q_ik^2 D_t',k
+            term_a = Dm.T @ QQD
+        ZWb = [Z.T @ (w * it["beta"]) for it in info]  # Z^T W beta_t
+        H = np.zeros((n, n))
+        for i_, ti in enumerate(info):
+            for i2 in range(i_, n):
+                tj = info[i2]
+                # T2 = -beta_t^T Q beta_t'
+                h = -(ti["beta"] @ (w * tj["beta"]) - ZWb[i_] @ Sg @ ZWb[i2])
+                same = i_ == i2
+                if ti["kind"] == "lambda" and tj["kind"] == "lambda":
+                    h += ti["g"] @ tj["g"]                                     # T1
+                    t3 = -np.sum(tj["B"] * ti["C"])                            # + tr(B_t'^T S B_t) inside -[...]
+                    if ti["k"] == tj["k"]:
+                        r = rows_of[ti["k"]]
+                        Gbb = ti["Zt"].T @ (ti["Zt"] * w[r][:, None])          # Z_t^T W Z_t
+                        t3_same = np.trace(Gbb)
+                    else:
+                        Gbb, t3_same = None, 0.0
+                    h += -(t3_same + t3)                                       # -tr(Z_t'^T Q Z_t)
+                    if same:
+                        h += ti["g"] @ u - np.trace(ti["C"])                   # T1, T3 (Z_tt = Z_t)
+                    d = np.sum(ti["C"] * tj["C"].T)
+                    gterm = np.sum(ti["C"].T * tj["C"])
+                    # (e)(t,t') + (e)(t',t): tr(Z_t'^T W Z_t (I - S)) - tr(B_t'^T S B_t (I - S)), and swapped
+                    e1 = 0.0
+                    if Gbb is not None:
+                        e1 = 2.0 * (np.trace(Gbb) - np.sum(Gbb * Sg))
+                    e2_ = -(np.sum(tj["B"] * ti["C"]) - np.sum(tj["B"] * ti["F"])) \
+                          - (np.sum(ti["B"] * tj["C"]) - np.sum(ti["B"] * tj["F"]))
+                    h += 0.5 * (d + gterm + e1 + e2_)
+                elif ti["kind"] != "lambda" and tj["kind"] != "lambda":
+                    ci, cj = noise.index(i_), noise.index(i2)
+                    if same:
+                        r = rows_of[ti["k"]]
+                        h += 0.5 * np.sum(ti["d2"] * alpha[r] ** 2) - 0.5 * np.sum(Qdiag[r] * ti["d2"])
+                    h += 0.5 * term_a[ci, cj]                                  # (a)
+                else:
+                    tn, tl = (ti, tj) if ti["kind"] != "lambda" else (tj, ti)
+                    # (b)(noise, lambda) = tr(Q D_t Q Z_t' Z^T) = tr(S Z^T W D_t W Z_t') - tr(S X_t S B_t');
+                    # T4 = 1/2 tr(Q D_t Q (Z_t' Z^T + Z Z_t'^T)) = (b), the lambda parameter having no D.
+                    bterm = -np.sum(tn["SX"].T * tl["C"])
+                    if tn["k"] == tl["k"]:
+                        r = rows_of[tn["k"]]
+                        M = (Z[r] * (w[r] ** 2 * tn["d1"])[:, None]).T @ tl["Zt"]
+                        bterm += np.sum(Sg * M.T)
+                    h += bterm
+                H[i_, i2] = H[i2, i_] = h
+        return H, params
 
     # ------------------------------------------------------------ JAX
     def loglik_fn(self):
