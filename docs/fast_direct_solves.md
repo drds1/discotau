@@ -1,8 +1,7 @@
-# Faster direct solves (design, in progress)
+# Faster direct solves
 
-This page is the working design for making `EchoFit.optimise()` (the nested Laplace solve and the
-single-Gaussian solve) much faster. Nothing on it is in the library yet. It records the structure being
-exploited, the maths, what has been verified and the plan.
+How `EchoFit.optimise()` (the nested Laplace solve and the single-Gaussian solve) and NUTS were made
+faster: the structure exploited, the maths, what was measured, and what was tried and dropped.
 
 ## Why the solves are slow
 
@@ -109,33 +108,52 @@ weighted sum of fixed matrices and one Cholesky, with an analytic gradient, and 
 recomputed inside the inner loop. Today every inner gradient recomputes all responses, all transfer
 coefficients and the full QR.
 
-## Verified so far
+## What is in the library (branch `fast-direct-solves`)
 
-On Fairall 9's six Swift light curves (3091 points, 428 modes, p = 874), at the cached optimum of the
-face-on disc fit, on a laptop:
+1. **Float64 marginal likelihood on the host** (`discotau/gram.py`, `GramCache`), through
+   `jax.pure_callback` with an analytic `custom_vjp`. Each light curve enters P the faster way for it
+   (`HOST_METHOD = "auto"`): light curves whose noise is fixed through precomputed Gram matrices, light
+   curves with the error model through their rows of the weighted design matrix and one BLAS-3 `syrk`
+   (compute-bound, the error model exact). `model.MARGINAL_METHOD = "auto"` keeps the QR when there are
+   fewer than 1.2 data points per linear parameter, where its data-space form is cheaper.
+2. **Exact Hessian for the scalar parameters** (`GramCache.scalar_hessian`, `discotau/exact_hessian.py`):
+   every light curve's log scale (gain times sigma_drw) and error scale and jitter, from the Gaussian
+   Hessian identity moved into p x p quantities. One T1 + T2 pair cancels to ~1e-3 of its parts and is
+   combined analytically. Used by both direct solves when the Gram path is on; other parameters keep
+   finite-difference columns.
+3. **Hessians reused** across Newton steps and between restarts that land together.
+4. **Draw scoring in memory-bounded chunks** (the cause of the out-of-memory kills).
+5. **`fit(init_from_optimum=True, mass_from_optimum=True)`**: NUTS starts with the direct solve's
+   covariance as its inverse mass matrix.
 
-| | log likelihood | time |
-|---|---|---|
-| dense float64 covariance (reference) | 602.845803 | 0.8 s |
-| Gram formulation, value | 602.845803 (difference 5e-9) | 51 ms |
-| Gram formulation, value and gradient | gradient matches finite differences to 3e-5 | 157 ms |
-| inner loop at one outer point, value and gradient in gamma | difference 4e-11 | 64 ms (plus 78 ms once per point) |
-| discotau today, jitted potential | | 328 ms |
-| discotau today, jitted potential and gradient | | 459 ms |
+## Measured on Kaggle (simulated light curves with known truths, `experiments/fast_solve/`)
 
-Kaggle benchmarks at the larger grids (time and peak memory, current against Gram) are running.
+Answers are unchanged throughout: log evidence within ~0.2 for the nested solve, posteriors within 0.01
+dex. Whole solves, seconds, with the error model on every light curve:
 
-## Plan
+| solve | scenario | before | after | speed-up |
+|---|---|---|---|---|
+| single Gaussian | 6 bands, 1216 points | 766 | 305 | 2.5x |
+| single Gaussian | 6 bands + X-ray driver | 701 | 272 | 2.6x |
+| single Gaussian | NGC 5548 cadence, 19 light curves | 1731 | 627 | 2.8x |
+| nested | 6 bands | 1883 | 884 | 2.1x |
+| nested | 6 bands + X-ray driver | 2725 | 1252 | 2.2x |
+| nested | NGC 5548 cadence, 19 light curves | 6438 | 2302 | 2.8x |
 
-1. Benchmark at scale on Kaggle (time and memory at 300 to 1150 modes).
-2. Replace `model._marginal_solve` with the Gram likelihood (float64 via `pure_callback`, `custom_vjp`).
-   `reverberation_model` passes each band's transfer coefficients and its fixed basis instead of the
-   combined columns. All three solvers and NUTS keep working unchanged. The error model uses the low-rank
-   weight family.
-3. Restructure the nested solve's inner loop around the gamma scaling (responses once per outer point,
-   inner Newton on a few scalars).
-4. Check posteriors and evidence against the current solves on the CREAM-paper cases, Fairall 9 and
-   NGC 5548, and time them.
+Without the error model, on long well-sampled campaigns, the likelihood alone is 2.5-3x faster per
+gradient (Fairall 9's cadence 0.66 s to 0.23 s) and whole nested solves ~2x.
+
+NUTS (6 bands, 327 modes): the default sampled model (~670 dimensions) failed to mix (7.8 h, effective
+sample size 7, stuck far from the truth); starting it at the optimum, with or without the solve's mass
+matrix, still mixed badly (ESS 37-92 in 3.5 h). The marginalised model with the warm start was best:
+1771 s against 5004 s with defaults, 0.233 against 0.159 effective samples per second, no divergences.
+
+## Tried and dropped
+
+- **Responses computed once per outer grid point** in the nested solve's inner loop: no gain with the
+  error model (the host likelihood dominates each gradient), reverted.
+- **In-place Gram assembly alone**: the host was memory-bound on many light curves; the dense `syrk`
+  path replaced it for light curves with the error model.
 
 ## Literature
 

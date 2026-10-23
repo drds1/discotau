@@ -47,7 +47,7 @@ nav:
       - How the MCMC works: mcmc_implementation.md
       - Performance and the direct solve: performance_improvements.md
       - "Nested Laplace: fast posteriors with ridges and modes": nested_laplace.md
-      - "Faster direct solves (design, in progress)": fast_direct_solves.md
+      - "Faster direct solves": fast_direct_solves.md
   - API reference: api.md
   - Development:
       - Releasing: releasing.md
