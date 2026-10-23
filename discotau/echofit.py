@@ -1357,11 +1357,25 @@ class EchoFit:
         def batch_potential(points):
             return np.array([float(potential_jit(jnp.asarray(x, dtype=z0.dtype))) for x in np.atleast_2d(points)])
 
+        # The scalar parameters' likelihood block exactly (discotau.exact_hessian)
+        # when the Gram path is in use; otherwise finite differences throughout.
+        from .exact_hessian import ExactHessian
+
+        exact = ExactHessian.create(reverberation_model, kwargs, unravel, z0, lambda x: objective(x)[1])
+        timings["exact_hessian"] = exact is not None
+
         def curvature(z, posterior_scale=False):
             # posterior_scale: check each eigenvalue over one posterior sd
             # (_posterior_scale_curvature); ~2 potential evaluations per
             # parameter, so only at each polished optimum, not every Newton step.
-            _, vals, vecs = _fd_hessian(lambda x: objective(x)[1], z, sd=scale["sd"], basis=scale["basis"])
+            if exact is not None:
+                sd = scale["sd"]
+                if scale["basis"] is not None:
+                    bv, bvec = scale["basis"]
+                    sd = np.sqrt(np.sum(bvec ** 2 / np.clip(np.abs(bv), 1e-12, None), axis=1))
+                vals, vecs = np.linalg.eigh(exact.hessian(z, sd))
+            else:
+                _, vals, vecs = _fd_hessian(lambda x: objective(x)[1], z, sd=scale["sd"], basis=scale["basis"])
             scale["basis"] = (vals, vecs)
             if posterior_scale:
                 f0 = float(batch_potential(np.asarray(z)[None])[0])

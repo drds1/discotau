@@ -298,3 +298,31 @@ def test_scalar_hessian_matches_finite_differences(data, error_model, host):
         fd[:, i] = (grad(e) - grad(-e)) / (2 * eps)
     fd = 0.5 * (fd + fd.T)
     assert np.allclose(H, fd, rtol=2e-4, atol=2e-4 * np.abs(fd).max()), np.max(np.abs(H - fd))
+
+
+@pytest.mark.parametrize("error_model", [(), ("g", "driver")])
+def test_exact_potential_hessian_matches_finite_differences(data, error_model, monkeypatch):
+    from jax.flatten_util import ravel_pytree
+    from numpyro.infer import init_to_value
+
+    from discotau.echofit import _initialize_marginal_model
+    from discotau.exact_hessian import ExactHessian
+    from discotau.nested_laplace import fd_hessian
+
+    monkeypatch.setattr(model, "MARGINAL_METHOD", "gram")
+    ef = _echofit(data, driver=True, error_model=error_model)
+    params = _params(ef, 9)
+    for n in error_model:
+        params[f"sigma_jitter_{n}"] = jnp.asarray(0.4 * float(np.mean(data["bands"]["g"]["yerr"])))
+    kw = dict(ef._model_kwargs(), marginalise_linear=True)
+    info = _initialize_marginal_model(0, kw, init_to_value(values=params), ef.M_BH)
+    z0, unravel = ravel_pytree(info.param_info.z)
+    grad = jax.jit(jax.grad(lambda z: info.potential_fn(unravel(z))))
+    full_grad = lambda z: np.asarray(grad(jnp.asarray(z, dtype=z0.dtype)), dtype=np.float64)  # noqa: E731
+    exact = ExactHessian.create(model.reverberation_model, kw, unravel, z0, full_grad)
+    assert exact is not None
+    z = np.asarray(z0, dtype=np.float64)
+    H_fd, vals, vecs = fd_hessian(full_grad, z, sd=np.full(z.size, 0.05))
+    sd = np.sqrt(np.sum(vecs ** 2 / np.abs(vals), axis=1))
+    H = exact.hessian(z, sd)
+    assert np.allclose(H, H_fd, rtol=2e-2, atol=2e-3 * np.abs(H_fd).max()), np.max(np.abs(H - H_fd))

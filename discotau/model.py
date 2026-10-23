@@ -212,6 +212,7 @@ from typing import Dict, Optional
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import numpyro
 import numpyro.distributions as dist
 
@@ -694,6 +695,32 @@ MARGINAL_METHOD = "auto"
 GRAM_MIN_POINTS_PER_PARAMETER = 1.2
 
 
+# Passed as gram_cache, the linear-Gaussian likelihood is left out (a prior-only
+# potential, for discotau.exact_hessian).
+NULL_LIKELIHOOD = "null likelihood"
+
+
+def gram_in_use(kwargs) -> bool:
+    """Whether :func:`reverberation_model` with these keyword arguments
+    evaluates the marginal likelihood from the Gram cache (see
+    ``MARGINAL_METHOD``), without running it."""
+    cache = kwargs.get("gram_cache")
+    if cache is None or cache is NULL_LIKELIHOOD or not kwargs.get("marginalise_linear", False):
+        return False
+    curves = ([("driver", kwargs["driver"])] if kwargs.get("driver") is not None else []) + list(kwargs["bands"].items())
+    fixed = kwargs.get("fixed_params") or {}
+    if any(f"C_{name}" in fixed for name, _ in curves) or [n for n, _ in curves] != cache.names:
+        return False
+    if MARGINAL_METHOD == "gram":
+        return True
+    if MARGINAL_METHOD != "auto":
+        return False
+    n_data = sum(int(np.shape(d["y"])[0]) for _, d in curves)
+    n_bg = sum(0 if d.get("background_basis") is None else int(np.shape(d["background_basis"])[1]) for _, d in curves)
+    p_linear = 2 * int(np.shape(kwargs["freqs"])[0]) + len(curves) + n_bg
+    return n_data >= GRAM_MIN_POINTS_PER_PARAMETER * p_linear
+
+
 def _gram_inputs(blocks, prior_scale):
     """Each block's per-mode ``(a, b) = gain * prior_sd * (A, B)`` (1 and 0 for a
     driver light curve), error scale and jitter: the arguments of
@@ -796,6 +823,9 @@ def _linear_marginal(blocks, prior_scale, draw_linear, gram_cache=None):
     by the QR of :func:`_marginal_solve`. ``MARGINAL_METHOD`` chooses (see
     its comment).
     """
+    if gram_cache is NULL_LIKELIHOOD:
+        numpyro.factor("linear_marginal_loglik", jnp.zeros(()))
+        return
     n_freq = prior_scale.shape[0]
     offset_names = [b["name"] for b in blocks if b["known_offset"] is None]
     n_off = len(offset_names)
