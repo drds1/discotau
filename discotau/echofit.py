@@ -35,6 +35,7 @@ from .forward_model import (
     legendre_background_basis, mix_diffuse_continuum, lognormal_response, typical_log_mdot,
 )
 from .grid_utils import estimate_dt_min, graded_tau_grid, check_tau_grid_resolution, hybrid_frequency_grid
+from . import frequency_grid as _frequency_grid
 from .nested_laplace import fd_hessian as _fd_hessian, lbfgs_sd as _lbfgs_sd
 from . import disc_sed
 from . import plotting
@@ -50,8 +51,10 @@ PERIOD_MAX_FACTOR = 2.0
 # build_grid()'s default highest driver frequency (cycles per day) and the
 # fractional step of the grid's logarithmic part; see its f_max docstring.
 F_MAX_CYCLES_PER_DAY = 2.0
-# The grid's logarithmic step: 0.01 since October 2026 (was 0.03, which left the evidence ~55 short of
-# converged on Fairall 9's 649-day campaign and its free lags ~0.45 d long; CLAUDE.md decision #35).
+# The logarithmic step of build_grid(log_step=...)'s fixed grid: 0.01 (was 0.03, which left the
+# evidence ~55 short of converged on Fairall 9's 649-day campaign; CLAUDE.md decision #35). Since
+# October 2026 the default grid is automatic instead (log_step=None; decision #38), and 0.01 was not
+# converged on 9 of 19 simulated campaigns (long, high-SNR, low-mass or with a driver light curve).
 FREQ_LOG_STEP = 0.01
 
 # add_lightcurve()/add_driver_lightcurve()'s default background order: a linear
@@ -388,6 +391,8 @@ class EchoFit:
         self.driver_data: Optional[dict] = None
         self.freqs: Optional[np.ndarray] = None
         self.tau_grid: Optional[np.ndarray] = None
+        self.grid_info: Optional[dict] = None   # how build_grid() chose the frequencies
+        self.grid_check: Optional[dict] = None  # check_frequency_grid()'s result
         self.mcmc = None
         self.optimum: Optional[dict] = None
         self.optimise_restarts: Optional[list] = None
@@ -526,10 +531,21 @@ class EchoFit:
         tau_grid_power: float = 3.0,
         period_max: Optional[float] = None,
         f_max: float = F_MAX_CYCLES_PER_DAY,
-        log_step: float = FREQ_LOG_STEP,
+        log_step: Optional[float] = None,
+        grid_safety: float = _frequency_grid.SAFETY,
     ):
         """Build the shared driver-frequency grid and lag grid from the
         currently registered light curves.
+
+        The default frequency grid is automatic (``log_step=None``): as few
+        driver modes as the data need, designed from each light curve's own
+        signal-to-noise per resolved Fourier pair, estimated by a quick
+        Gaussian-process fit of each light curve alone
+        (:mod:`discotau.frequency_grid`, CLAUDE.md decision #38). Rich data
+        (long, high signal-to-noise, a driver light curve) get more modes than
+        the fixed grid had, sparse or noisy data fewer. ``self.grid_info``
+        records how it was chosen; after a fit, :meth:`check_frequency_grid`
+        tests it against the fitted model.
 
         Parameters
         ----------
@@ -537,10 +553,7 @@ class EchoFit:
             Asks for the pre-October-2026 grid instead of the default one:
             ``n_freq`` log-spaced frequencies from ``2 pi / period_max`` to
             ``pi / dt_min`` (``dt_min`` estimated from the cadence if not
-            given). Useful for small, fast fits (tests, demos). Leave unset for
-            the default grid, whose size follows from ``period_max``, ``f_max``
-            and ``log_step``: harmonics of ``period_max`` at low frequency, then
-            log spacing (:func:`~discotau.grid_utils.hybrid_frequency_grid`).
+            given). Useful for small, fast fits (tests, demos).
         n_tau : int
             Number of points on the lag grid used to evaluate/integrate psi.
         tau_max : float, optional
@@ -563,7 +576,9 @@ class EchoFit:
             (5th percentile, :func:`~discotau.grid_utils.estimate_dt_min`).
         f_max : float
             Highest driver frequency, cycles per day (default 2, i.e. a
-            0.5-day period). An absolute default rather than one from the
+            0.5-day period). With the automatic grid it is the lowest the grid
+            may stop at: the grid extends further (up to 4 ``f_max``) where
+            the estimated signal-to-noise is still high. An absolute default rather than one from the
             cadence: the echoes carry the driver's variability down to the
             sharpest feature of the response, its rise near zero lag, and at
             high SNR the data resolve it. The earlier cadence-based default (a
@@ -572,10 +587,20 @@ class EchoFit:
             biased SNR-100 fits towards high inclination and accretion rate.
             Raise it for black holes much lighter than ~1e7 Msun, whose
             responses rise within hours.
-        log_step : float
-            Fractional frequency step of the grid's logarithmic part (default
-            0.01; it was 0.03 until October 2026, converged on short campaigns but
-            not on a 649-day one). Smaller steps add modes at high frequency.
+        log_step : float, optional
+            Unset (the default): the automatic grid. A number gives the fixed
+            grid used until October 2026, harmonics of ``period_max`` then this
+            fractional step up to ``f_max``
+            (:func:`~discotau.grid_utils.hybrid_frequency_grid`; 0.01 was the
+            default, ``FREQ_LOG_STEP``).
+        grid_safety : float
+            The automatic grid's factor on the estimated signal-to-noise
+            (default 3). Larger gives more modes. The estimate assumes a
+            smoothed random walk; 3 kept the expected loss at or below ~1 in
+            log evidence on every simulated campaign tested. Driver light
+            curves and free-lag bands, estimated with the model's own
+            unsmoothed shape, take ``frequency_grid.UNSMOOTHED_SAFETY`` (1)
+            instead.
         period_max : float, optional
             Longest driver period (days); sets the frequency grid's lower
             bound ``w_min = 2 pi / period_max``. Defaults to twice the
@@ -607,15 +632,50 @@ class EchoFit:
             if dt_min is None:
                 dt_min = estimate_dt_min(all_t_arrays, t_span=t_span)
             self.freqs = jnp.asarray(np.geomspace(2.0 * np.pi / period_max, np.pi / dt_min, n_freq))
+            self.grid_info = dict(kind="log", n_freq=int(n_freq))
         else:
             if dt_min is not None:
                 f_max = 0.5 / dt_min  # w_max = pi / dt_min
-            self.freqs = jnp.asarray(hybrid_frequency_grid(period_max, f_max, log_step))
+            if log_step is not None:
+                self.freqs = jnp.asarray(hybrid_frequency_grid(period_max, f_max, log_step))
+                self.grid_info = dict(kind="fixed", log_step=float(log_step), f_max=float(f_max))
+            else:
+                self.freqs, self.grid_info = self._automatic_frequency_grid(
+                    t_span, tau_max, period_max, f_max, grid_safety)
 
         self.tau_grid = jnp.asarray(graded_tau_grid(tau_max, n_tau, power=tau_grid_power))
         for message in check_tau_grid_resolution(self.tau_grid, self.bands, self.M_BH):
             warnings.warn(f"build_grid(): {message}")
         return self
+
+    def _automatic_frequency_grid(self, t_span, tau_max, period_max, f_max, safety):
+        """build_grid()'s default grid (see :mod:`discotau.frequency_grid`).
+        Falls back to the fixed grid, with a warning, if no light curve can
+        be used for the estimate."""
+        fg = _frequency_grid
+        curves = {name: dict(t=d["t"], y=d["y"], yerr=d["yerr"], smoothing=fg.SMOOTH_ALL or d["lag_mode"] == "physical")
+                  for name, d in self.bands.items()}
+        if self.driver_data is not None:
+            curves["driver"] = dict(t=self.driver_data["t"], y=self.driver_data["y"], yerr=self.driver_data["yerr"],
+                                    smoothing=fg.SMOOTH_ALL)
+        t0 = time.perf_counter()
+        rho, fits = fg.estimate_rho(curves, t_span, safety=safety, unsmoothed_safety=fg.UNSMOOTHED_SAFETY)
+        if rho is None:
+            warnings.warn("build_grid(): no light curve could be used for the automatic frequency grid; "
+                          f"using the fixed grid (log_step={FREQ_LOG_STEP}).")
+            return (jnp.asarray(hybrid_frequency_grid(period_max, f_max, FREQ_LOG_STEP)),
+                    dict(kind="fixed", log_step=FREQ_LOG_STEP, f_max=float(f_max), fallback=True))
+        h = 2 * np.pi / period_max
+        f_cap = fg.F_CAP_FACTOR * f_max
+        scaled = fg.tabulated(rho, h, 2 * np.pi * f_cap)
+        w, info = fg.design_grid(scaled, t_span, period_max, window=t_span + tau_max, f_min=f_max, f_cap=f_cap)
+        if len(w) > fg.LARGE_GRID_MODES:
+            warnings.warn(f"build_grid(): the automatic frequency grid has {len(w)} driver modes, so each "
+                          "likelihood evaluation will be slow. build_grid(log_step=0.01) gives the smaller fixed "
+                          "grid, and check_frequency_grid() after a fit says whether it was enough.")
+        info.update(kind="auto", safety=float(safety), unsmoothed_safety=float(fg.UNSMOOTHED_SAFETY), n_modes=int(len(w)), estimate_seconds=time.perf_counter() - t0,
+                    light_curves={k: dict(v) for k, v in fits.items()})
+        return jnp.asarray(w), info
 
     # ------------------------------------------------------------------
     def _background_t_range(self):
@@ -1034,7 +1094,7 @@ class EchoFit:
             self.samples = {k: v.reshape((-1,) + v.shape[2:]) for k, v in self._samples_by_chain.items()}
             self.extra_fields = self.mcmc.get_extra_fields()
             self._extra_fields_by_chain = self.mcmc.get_extra_fields(group_by_chain=True)
-            self._maybe_disc_sed()
+            self._post_fit_checks()
             return self
 
         # -- title given: checkpointed/resumable single-chain path --
@@ -1156,7 +1216,7 @@ class EchoFit:
         self.mcmc = None  # no single mcmc object spans all chunks in this path
 
         self._save_chains(self.run_dir)
-        self._maybe_disc_sed()
+        self._post_fit_checks()
         if generate_report:
             reporting.generate_report(
                 self, self.run_dir, fit_seconds=fit_seconds, title=self.title
@@ -1591,7 +1651,7 @@ class EchoFit:
         timings["draws_seconds"] = time.perf_counter() - t0
         timings["method"] = "laplace"
         self.optimise_timings = timings
-        self._maybe_disc_sed()
+        self._post_fit_checks()
         return self
 
     # ------------------------------------------------------------------
@@ -1697,7 +1757,7 @@ class EchoFit:
                 f"nested_laplace(): the posterior is only {result['edge_drop']:.1f} below its peak at an edge "
                 "of the grid; it may extend beyond it."
             )
-        self._maybe_disc_sed()
+        self._post_fit_checks()
         return self
 
     # ------------------------------------------------------------------
@@ -1716,6 +1776,76 @@ class EchoFit:
             raise ValueError("disc_sed_analysis needs the redshift: EchoFit(..., redshift=...) or redshift=...")
         self.disc_sed = disc_sed.disc_sed_analysis(self, **options)
         return self.disc_sed["summary"]
+
+    def _post_fit_checks(self):
+        """After any solver: the frequency-grid check and, if asked for, the
+        disc SED analysis. Each only warns on failure: never lose a finished
+        fit to post-processing."""
+        try:
+            self.check_frequency_grid()
+        except Exception as exc:  # noqa: BLE001
+            warnings.warn(f"check_frequency_grid() failed: {exc}")
+        self._maybe_disc_sed()
+
+    def _point_estimate(self) -> dict:
+        """The nonlinear parameters at the direct solve's optimum, or else
+        their posterior medians: scalar sites only."""
+        skip = ("y_pred_", "bg_", "C_", "linear_")
+        if self.optimum is not None:
+            src = {k: np.asarray(v) for k, v in self.optimum.items()}
+            return {k: float(v) for k, v in src.items() if v.size == 1 and not k.startswith(skip)}
+        out = {}
+        for k in list(self.samples.keys()):
+            if k.startswith(skip) or k in ("S", "C", "S_raw", "C_raw"):
+                continue
+            v = np.asarray(self.samples[k])
+            if v.ndim == 1:
+                out[k] = float(np.median(v))
+        return out
+
+    def check_frequency_grid(self, params: Optional[dict] = None, warn: bool = True) -> dict:
+        """Is the driver frequency grid fine enough for the fitted model?
+
+        Recomputes the summed signal-to-noise per resolved Fourier pair from
+        the model at ``params`` (default: the direct solve's optimum, else the
+        posterior medians) and predicts how much log evidence the grid loses
+        against a continuum of modes (:mod:`discotau.frequency_grid`). Warns
+        above 2 (``frequency_grid.CHECK_LOSS``). Runs automatically after
+        ``.optimise()`` and ``.fit()``. Returns (and stores as
+        ``self.grid_check``) the predicted loss, the grid's size, and the
+        smallest grid the fitted model itself calls for (``suggested_freqs``;
+        refit with ``ef.freqs = jnp.asarray(ef.grid_check["suggested_freqs"])``).
+        The prediction was 1-4x the exact loss, on the safe side, in
+        simulations; real light curves can carry more high-frequency structure
+        than the fitted model expects, which it cannot see."""
+        fg = _frequency_grid
+        if self.freqs is None:
+            raise RuntimeError("check_frequency_grid() needs build_grid() and a fit first.")
+        params = self._point_estimate() if params is None else dict(params)
+        cap = fg.capture_blocks(self, params)
+        curves = list(self.bands.values()) + ([self.driver_data] if self.driver_data is not None else [])
+        all_t = np.concatenate([np.asarray(d["t"], dtype=float) for d in curves])
+        T = float(np.ptp(all_t))
+        freqs = np.asarray(self.freqs, dtype=np.float64)
+        f_top = fg.F_CAP_FACTOR * max(F_MAX_CYCLES_PER_DAY, float(freqs.max()) / (2 * np.pi))
+        rho = fg.tabulated(fg.model_rho(cap["blocks"], self.tau_grid, cap["sigma_drw"], T, cap["tau_drw"]),
+                           float(freqs.min()), 2 * np.pi * f_top)
+        loss = fg.predicted_loss(rho, freqs, T, f_top)
+        period_max = 2 * np.pi / float(freqs.min())
+        tau_max = float(np.max(np.asarray(self.tau_grid)))
+        suggested, _ = fg.design_grid(rho, T, period_max, window=T + tau_max,
+                                      f_min=min(F_MAX_CYCLES_PER_DAY, float(freqs.max()) / (2 * np.pi)),
+                                      f_cap=f_top)
+        self.grid_check = dict(predicted_loss=loss, n_modes=int(len(freqs)), suggested_n_modes=int(len(suggested)),
+                               suggested_freqs=suggested, params=params)
+        if warn and loss > fg.CHECK_LOSS:
+            warnings.warn(
+                f"check_frequency_grid(): the driver frequency grid ({len(freqs)} modes) is predicted to lose "
+                f"{loss:.1f} in log evidence for the fitted model, so the posterior may be biased (coarse grids "
+                f"favour broad responses). The fitted model calls for {len(suggested)} modes: refit with "
+                "build_grid(grid_safety=...) larger, or ef.freqs = jnp.asarray(ef.grid_check['suggested_freqs'])."
+            )
+        return self.grid_check
 
     def _maybe_disc_sed(self):
         if not self.sed_analysis:

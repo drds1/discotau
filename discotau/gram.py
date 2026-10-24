@@ -35,6 +35,28 @@ bands), the data-adaptive relative of exponential-sum approximations of 1/x
 weights at any ``u`` project exactly onto ``r`` coefficients, and every Gram
 quantity is the same combination of ``r`` precomputed ones.
 
+The complex form (light curves in Gram mode with fixed noise). With
+``m_j = M_C[:, j] + i M_S[:, j] = conj(gamma_j) exp(i w_j t)``,
+``gamma = a + i b``, a light curve's contribution to P's driver block is fixed
+by two complex K x K matrices built once,
+``E1_jk = sum_i w_i exp(i (w_j - w_k) t_i)`` (Hermitian) and
+``E2_jk = sum_i w_i exp(i (w_j + w_k) t_i)`` (symmetric):
+
+    A = diag(conj gamma) E2 diag(conj gamma),   B = diag(conj gamma) E1 diag(gamma),
+    P_CC = Re(A + B) / 2,  P_SS = Re(B - A) / 2,  P_CS = Im(A - B) / 2  (C rows, S columns).
+
+Summed over light curves by ``einsum("bj,bk,bjk->jk")``, one streaming pass
+each with no K x K temporaries. With ``dL/dP = -W / 2`` and
+``X = (G_CC - G_SS)/2 - i G_CS``, ``Y = (G_CC + G_SS)/2 + i G_CS`` (G the
+blocks of ``-W/2``), ``dL = Re sum(X o dA + Y o dB)``, so
+``dL/da = Re(g1 + g2)``, ``dL/db = Im(g1 - g2)`` with
+``g1 = ((X + X^T) o E2) conj(gamma) + (Y o E1) gamma`` and
+``g2_k = sum_j Y_jk E1_jk conj(gamma_j)``: three more passes. On Kaggle this
+made the gradient 1.5-2.6x faster (NGC 5548's cadence, 768 modes, 1.1 s ->
+0.43 s), the assembly ~4.5x; the same numbers to ~1e-11. Light curves with
+the error model stay in dense mode ("auto"). Threading the einsums over light
+curves gave nothing: they are memory-bound.
+
 Gradients: with ``u = P^-1 c`` and ``W = P^-1 + u u^T``,
 ``dL/dR_b = h_b u^T - G_b R_b W - G_E,b W_E``, of which only the 2x2 diagonal
 sub-blocks matter, and the error-model parameters through the ``r``
@@ -143,6 +165,19 @@ class GramCache:
                            Gsc=np.ascontiguousarray(G[:, :K, K:]), Gcc=np.ascontiguousarray(G[:, K:, K:]),
                            G=G, GE=np.stack(GE), EE=np.stack(EE), h=np.stack(h), hE=np.stack(hE), yy=np.array(yy))
             blocks.append(blk)
+        # Gram-mode light curves with fixed noise go to the complex form: E1 and
+        # E2 replace their Gss, Gsc, Gcc (the complex form, module docstring).
+        self._cx = np.array([k for k, b in enumerate(blocks) if b["mode"] == "gram" and not b["projected"]], int)
+        if len(self._cx):
+            E1, E2 = [], []
+            for k in self._cx:
+                blk = blocks[k]
+                blk["mode"] = "complex"
+                Gss, Gsc, Gcc = blk.pop("Gss")[0], blk.pop("Gsc")[0], blk.pop("Gcc")[0]
+                del blk["G"]
+                E1.append((Gcc + Gss) + 1j * (Gsc - Gsc.T))
+                E2.append((Gcc - Gss) + 1j * (Gsc + Gsc.T))
+            self._E1, self._E2 = np.stack(E1), np.stack(E2)
         self._blocks = blocks
         self.n_dense = row0
         self.N = int(sum(len(b["e2"]) for b in blocks))
@@ -194,11 +229,24 @@ class GramCache:
                 parts.append(dict(sw=sw, sig2=sig2))
                 continue
             q, dq_ds, dq_dj = self._coeffs(blk, s[k], j[k])
+            GE = np.tensordot(q, blk["GE"], 1)
+            if blk["mode"] == "complex":
+                # P_tt for these comes from the einsums after the loop.
+                RtGE = _rt(ak, bk, GE)
+                ei = blk["e_idx"]
+                P[:2 * K, ei] += RtGE
+                P[ei, :2 * K] += RtGE.T
+                P[np.ix_(ei, ei)] += np.tensordot(q, blk["EE"], 1)
+                h = q @ blk["h"]
+                cvec[:2 * K] += _rt(ak, bk, h[:, None])[:, 0]
+                cvec[ei] += q @ blk["hE"]
+                yy += float(q @ blk["yy"])
+                parts.append(dict(GE=GE, h=h, sig2=sig2))
+                continue
             if blk["projected"]:
                 Gss, Gsc, Gcc = (np.tensordot(q, blk[n], 1) for n in ("Gss", "Gsc", "Gcc"))
             else:
                 Gss, Gsc, Gcc = blk["Gss"][0], blk["Gsc"][0], blk["Gcc"][0]
-            GE = np.tensordot(q, blk["GE"], 1)
             Gcs = Gsc.T
             GR_sS = Gss * ak - Gsc * bk
             GR_sC = Gss * bk + Gsc * ak
@@ -224,6 +272,15 @@ class GramCache:
             yy += float(q @ blk["yy"])
             parts.append(dict(q=q, dq_ds=dq_ds, dq_dj=dq_dj, GR=(GR_sS, GR_sC, GR_cS, GR_cC), GE=GE, h=h,
                               sig2=sig2))
+        if len(self._cx):
+            cg = a[self._cx] - 1j * b[self._cx]
+            A = np.einsum("bj,bk,bjk->jk", cg, cg, self._E2)
+            Bm = np.einsum("bj,bk,bjk->jk", cg, np.conj(cg), self._E1)
+            P[:K, :K] += 0.5 * (Bm.real - A.real)
+            P[K:2 * K, K:2 * K] += 0.5 * (A.real + Bm.real)
+            PCS = 0.5 * (A.imag - Bm.imag)
+            P[K:2 * K, :K] += PCS
+            P[:K, K:2 * K] += PCS.T
         if self.n_dense:
             from scipy.linalg.blas import dsyrk
 
@@ -261,15 +318,27 @@ class GramCache:
         u = sla.cho_solve(cf, cvec, check_finite=False)
         logdetP = 2.0 * np.sum(np.log(np.diag(cf[0])))
         L = -0.5 * (yy - cvec @ u + logdetP + logdetD + self.N * np.log(2.0 * np.pi))
-        W = sla.cho_solve(cf, np.eye(self.p), check_finite=False)
+        W = _cho_inverse(cf)
         W += np.outer(u, u)
         Wtt, ut = W[:2 * K, :2 * K], u[:2 * K]
         WS, WC = Wtt[:K], Wtt[K:]
+        da, db = np.zeros_like(a), np.zeros_like(b)
+        ds, dj = np.zeros_like(s), np.zeros_like(j)
+        if len(self._cx):
+            # dL/dP = -W/2; on the (S, C) block, dL = Re sum(X o dA + Y o dB) (the complex form, module docstring).
+            GSS, GCC, GCS = -0.5 * W[:K, :K], -0.5 * W[K:2 * K, K:2 * K], -0.5 * W[K:2 * K, :K]
+            X = 0.5 * (GCC - GSS) - 1j * GCS
+            Y = 0.5 * (GCC + GSS) + 1j * GCS
+            cg = a[self._cx] - 1j * b[self._cx]
+            g1 = (np.einsum("jk,bjk,bk->bj", X + X.T, self._E2, cg)
+                  + np.einsum("jk,bjk,bk->bj", Y, self._E1, np.conj(cg)))
+            # E1 is Hermitian: sum_j Y_jk E1_jk conj(gamma_j) = conj(sum_j conj(Y)_jk E1_kj gamma_j).
+            g2 = np.conj(np.einsum("kj,bkj,bj->bk", np.ascontiguousarray(np.conj(Y.T)), self._E1, np.conj(cg)))
+            da[self._cx] = (g1 + g2).real
+            db[self._cx] = (g1 - g2).imag
         if self.n_dense:
             dM = np.outer(yw, u) - Mt @ W          # dL/dM~ for the dense rows
             dy = Mt @ u - yw                        # dL/dy~
-        da, db = np.zeros_like(a), np.zeros_like(b)
-        ds, dj = np.zeros_like(s), np.zeros_like(j)
         for k, (blk, pt) in enumerate(zip(self._blocks, parts)):
             ei = blk["e_idx"]
             if blk["mode"] == "dense":
@@ -287,6 +356,15 @@ class GramCache:
                     dsig2 = dsw * (-0.5) * sw ** 3 - 0.5 / pt["sig2"]
                     ds[k] = float(np.sum(dsig2 * 2.0 * s[k] * blk["e2"]))
                     dj[k] = float(np.sum(dsig2 * 2.0 * j[k]))
+                continue
+            if blk["mode"] == "complex":
+                # The data projections (dL/dc = u) and the offset/background cross block
+                # (dL/dP_tE = -W_tE, both copies), with R^T rows S = a X_s - b X_c, C = b X_s + a X_c.
+                h, GE = pt["h"], pt["GE"]
+                WSE, WCE = W[:K, ei], W[K:2 * K, ei]
+                GEs, GEc = GE[:K], GE[K:]
+                da[k] += ut[:K] * h[:K] + ut[K:] * h[K:] - np.sum(WSE * GEs + WCE * GEc, axis=1)
+                db[k] += -ut[:K] * h[K:] + ut[K:] * h[:K] - np.sum(WCE * GEs - WSE * GEc, axis=1)
                 continue
             Wet = W[ei, :2 * K]
             (GR_sS, GR_sC, GR_cS, GR_cC), GE, h = pt["GR"], pt["GE"], pt["h"]
@@ -372,7 +450,7 @@ class GramCache:
         WZ = Z * w[:, None]
         P = np.eye(p) + Z.T @ WZ
         cf = sla.cho_factor(P, lower=True, check_finite=False)
-        Sg = sla.cho_solve(cf, np.eye(p), check_finite=False)
+        Sg = _cho_inverse(cf)
         u = Sg @ (WZ.T @ y)
         alpha = w * (y - Z @ u)
         V = WZ @ Sg                                   # Q Z = W Z S
@@ -539,6 +617,18 @@ class GramCache:
     def conditional_fn(self):
         self.loglik_fn()
         return self._jax_fns[1]
+
+
+def _cho_inverse(cf):
+    """``P^-1`` from ``cho_factor``'s lower factor by LAPACK's potri: about a
+    third fewer flops than solving against the identity (on Kaggle, factor
+    plus inverse 0.24 s -> 0.11 s at p = 1574)."""
+    from scipy.linalg.lapack import dpotri
+
+    Linv, info = dpotri(cf[0], lower=1)
+    if info != 0:
+        raise np.linalg.LinAlgError(f"dpotri failed (info {info})")
+    return np.tril(Linv) + np.tril(Linv, -1).T
 
 
 def _cholesky(P):

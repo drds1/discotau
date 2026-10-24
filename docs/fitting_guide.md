@@ -68,14 +68,15 @@ flowchart TD
 | `M_BH` | `EchoFit(...)` | required for physical bands | never fitted: set from the literature | 8 |
 | `drw_prior` | `EchoFit(...)` | `False` (random walk) | you want a damping timescale `tau_drw` and have a long enough baseline to constrain it | 6 |
 | `fixed_params` | `EchoFit(...)` | `{}` | a parameter is known, or badly constrained and you'd rather pin it | 8 |
-| `marginalise_linear` | `EchoFit(...)` | `False` | rarely: exact, but ~2× slower for NUTS here | 3 |
+| `marginalise_linear` | `EchoFit(...)` | `False` | running NUTS: with the warm start below it is the fastest NUTS measured | 3 |
 | `title`, `output_dir` | `EchoFit(...)` | `None` | long runs you may need to resume (checkpointed, single chain) | 4 |
 | `lag_mode` | `add_lightcurve` | `"physical"` | emission lines, or any band whose lag shouldn't follow the disk law | 7 |
 | `fit_error_model` | `add_lightcurve`, `add_driver_lightcurve` | `False` | real data whose quoted errors you don't fully trust | 7 |
 | `diffuse_continuum` | `add_lightcurve` | `False` | delays look too long for a disc, or there is a lag excess near the Balmer jump (broad-line-region diffuse continuum) | 7 |
 | `background_order` | `add_lightcurve`, `add_driver_lightcurve` | `1` | `0` only if you are sure there are no trends; `2` for curved ones | 7 |
 | `f_max` | `build_grid` | 2 cycles/day | black holes much lighter than ~1e7 Msun (raise it); speed on low-SNR data (lower it) | 5 |
-| `log_step` | `build_grid` | 0.01 | rarely | 5 |
+| `log_step` | `build_grid` | unset (automatic grid) | `0.01` reproduces the fixed grid used before October 2026 | 5 |
+| `grid_safety` | `build_grid` | 3 | `check_frequency_grid()` warns after a fit (raise it) | 5 |
 | `n_freq` | `build_grid` | unset (grid sized from `period_max`, `f_max`) | small, fast fits only: gives the old log grid with this many frequencies | 5 |
 | `n_tau` | `build_grid` | 400 | a resolution warning appears | 5 |
 | `tau_max` | `build_grid` | half the baseline | lags are known to be much shorter (sharper grid) | 5 |
@@ -88,6 +89,7 @@ flowchart TD
 | `num_chains`, `chain_method` | `fit` | 1, `"parallel"` | free-lag bands or any doubt about convergence: 4 chains | 4 |
 | `max_tree_depth` | `fit` | `None` (NumPyro's 10) | to cap worst-case cost per sample | 4 |
 | `init_from_optimum` | `fit` | `False` | after `.optimise()`, to start NUTS at its peak | 3 |
+| `mass_from_optimum` | `fit` | `False` | after `.optimise()`, to start warmup with its covariance as the mass matrix | 3 |
 | `checkpoint_every`, `report_every` | `fit` (with `title`) | 100, `None` | long runs; watching a report fill in | 4 |
 | response function | `discotau.model.response_function` | skew-normal | the physical thin-disk shape matters (section 9) | 9 |
 
@@ -110,11 +112,13 @@ flowchart TD
    exact Hessian (the Laplace approximation). The linear parameters are
    then drawn exactly for every sample, so every plot works.
 3. **`EchoFit(marginalise_linear=True)` + `.fit()`: NUTS on the marginalised
-   model.** Exact, samples ~8 parameters, but each step costs ~21× more (a
-   QR factorisation), so on the benchmark it is about 2× *less* efficient
-   than option 1. On the thin-disc response, though, the sampled model's
-   warmup stalled (step size ~1e-5, every iteration at 1023 steps) where this
-   one took ~7 steps per sample.
+   model.** Exact, samples ~8 parameters. Each step costs more than one of
+   the sampled model's, and on the small skew-normal benchmark below it was
+   about 2× *less* efficient than option 1. With the thin-disc response and
+   today's grids (hundreds of driver modes) it is the better choice: the
+   sampled model's warmup stalled (step size ~1e-5, every iteration at 1023
+   steps) where this one took ~7 steps per sample. Warm-started from
+   `.optimise()` it is the fastest NUTS measured (below).
 4. **`.optimise()`, the default direct solve: a nested Laplace
    approximation, no MCMC** (also `.nested_laplace()`). Grids
    `log_mdot_msun_yr` and inclination (and `temperature_slope` if fitted), integrates
@@ -199,9 +203,36 @@ direction that a single Laplace solve reports far too narrowly.
 In those cases, run the default `.optimise()` (nested Laplace), or `.fit()`.
 `.fit(init_from_optimum=True)` starts NUTS at `.optimise()`'s peak (the best
 mode's, after the nested solve) (single chain only, since identical starts would
-defeat multi-chain convergence checks). It should shorten the warmup
-needed, but that hasn't been benchmarked yet, so keep `num_warmup` at its
-default.
+defeat multi-chain convergence checks).
+
+### Running NUTS: the marginalised model, warm-started
+
+With the thin-disc response and today's frequency grids, this is the
+recommended way to run NUTS:
+
+```python
+ef = EchoFit(M_BH=..., marginalise_linear=True)
+# ... add light curves, build_grid() ...
+ef.optimise()
+ef.fit(init_from_optimum=True, mass_from_optimum=True, num_warmup=300)
+```
+
+`mass_from_optimum=True` gives NUTS the direct solve's covariance as its
+inverse mass matrix, so warmup starts already adapted. On a 6-band simulated
+campaign with 327 driver modes (Kaggle, 500 samples each):
+
+| | warmup | NUTS time | divergences |
+|---|---|---|---|
+| sampled model (default) | 1000 | 28 185 s | 0, but did not mix (effective sample size 7) |
+| sampled model, warm start and mass | 300 | 13 294 s | 38 |
+| marginalised model, defaults | 1000 | 5004 s | 0 |
+| marginalised model, warm start and mass | 300 | 1771 s | 0 |
+
+The sampled model has ~670 parameters at that grid size (two per driver
+mode), and it did not mix even when warm-started. Why is not yet understood.
+The marginalised model samples only the ~10 nonlinear parameters and
+integrates the rest out exactly, in float64 (`docs/fast_direct_solves.md`).
+This is one simulated campaign, so treat the ratios as indicative.
 
 ---
 
@@ -295,59 +326,77 @@ during the run. Use it for anything long enough that losing it would hurt.
 
 ## 5. Grid settings (`build_grid`)
 
-### Frequency grid: `period_max`, `f_max` (2 cycles/day) and `log_step` (0.01)
+### Frequency grid: automatic by default, with `period_max`, `f_max` (2 cycles/day) and `grid_safety` (3)
 
 The driver is a sum of sinusoids from a longest period $P_\text{max}$ up to
-$f_\text{max}$ cycles per day. Below a crossover frequency they are the
-harmonics of $P_\text{max}$, as in CREAM (Starkey et al. 2016); above it
-each frequency is a fixed fraction (`log_step`) above the last:
+at least $f_\text{max}$ cycles per day. Since October 2026 `build_grid()`
+chooses how many and where from the data (`log_step=None`,
+[frequency_grid.md](frequency_grid.md)):
 
-```math
-\omega_1 = \Delta\omega = \frac{2\pi}{P_\text{max}}, \qquad \omega_{k+1} = \omega_k + \max(\Delta\omega,\ s\,\omega_k), \qquad \omega_k \le 2\pi f_\text{max},
-```
+- **Why the grid matters.** A campaign of length $T$ resolves about one pair
+  of Fourier coefficients per $2\pi/T$ of bandwidth. Where the data constrain
+  each pair (high signal-to-noise per pair, $\rho$), the grid needs one mode
+  per pair, or the fit loses evidence and, worse, is biased: a coarse grid
+  favours broad responses and pushes the accretion rate and inclination up.
+  Where $\rho$ is small, modes can be sparse at almost no cost.
+- **How it is chosen.** Each light curve's power spectrum is fitted alone (a
+  smoothed random walk plus extra white noise, an exact Gaussian-process fit
+  taking seconds), giving $\rho(\omega)$ summed over light curves. The grid
+  spacing is then inversely proportional to $3\rho$ (`grid_safety`), within
+  limits, with an expected loss of at most 0.5 in log evidence.
+- **What it gives.** On 19 simulated campaigns it was converged (expected loss
+  about 1 or less) on all of them. The fixed 1 per cent grid used before was
+  not converged on 9 (long, high signal-to-noise, low black-hole mass or with
+  a driver light curve). Rich data get more modes than before (up to ~2.5x
+  for Fairall 9- or NGC 5548-length campaigns), sparse or noisy data fewer
+  (about half for two bands at SNR 30). `ef.grid_info` says what was chosen.
+- **The check after the fit.** `.optimise()` and `.fit()` end with
+  `ef.check_frequency_grid()`. It recomputes $\rho$ from the fitted model,
+  predicts the grid's loss, and warns above 2 (the prediction runs 1 to 4
+  times the exact loss) with a suggested grid
+  (`ef.grid_check`). Real light curves can carry more high-frequency
+  structure than the fitted model expects, which this check cannot see.
+- **Free-lag bands and driver light curves** are estimated as unsmoothed
+  random walks, as the model treats them. That is conservative: up to 2 to 4
+  times the modes the fitted model needed. `build_grid()` warns above 3000
+  modes.
 
-with $s$ = `log_step` and $P_\text{max} = 2\,(T + \tau_\text{max})$, $T$
-the baseline. $T + \tau_\text{max}$ is the window the driver must cover
-(the echo at the first observation depends on the driver up to
-$\tau_\text{max}$ earlier), and the factor of 2 lets the series represent
-trends longer than that window, which a red-noise driver always has. Until
-October 2026 the longest period was $T$ itself; on synthetic random-walk
-data that biased `log_mdot_msun_yr` and the inclination high, the fit absorbing the
-trends into long responses (`scripts/synthetic_recovery_grid.py`). The fit
-at the truth improved up to $P_\text{max} \approx 2(T + \tau_\text{max})$
-and was flat beyond it. Pass `period_max` to set it directly. Trends longer
+$P_\text{max} = 2\,(T + \tau_\text{max})$, $T$ the baseline.
+$T + \tau_\text{max}$ is the window the driver must cover (the echo at the
+first observation depends on the driver up to $\tau_\text{max}$ earlier),
+and the factor of 2 lets the series represent trends longer than that
+window, which a red-noise driver always has. Until October 2026 the longest
+period was $T$ itself; on synthetic random-walk data that biased
+`log_mdot_msun_yr` and the inclination high, the fit absorbing the trends
+into long responses (`scripts/synthetic_recovery_grid.py`). The automatic
+grid keeps the first 16 harmonics of $P_\text{max}$ for those trends, then
+spaces modes no closer than $2\pi/(T + \tau_\text{max})$, the window's own
+resolution: spacing every mode at $2\pi/P_\text{max}$ needed ~1.6x the modes
+for the same accuracy. Pass `period_max` to set it directly. Trends longer
 still are what the default linear background (section 7) is for.
 
-**Why harmonics, then log spacing.** Over a window of length $P_\text{max}$
-there is about one independent pair of Fourier coefficients per
-$1/P_\text{max}$ of bandwidth, so harmonics are the natural basis; a log
-grid packs near-duplicate modes in at low frequency. At high frequency the
-echoes are smoothed by the response and don't resolve individual harmonics:
-on the CREAM paper's synthetic tests a log grid there gave the same
-posteriors as harmonics all the way up, while harmonics to 2 cycles/day
-would need $2P_\text{max}$ modes (~1700 for an NGC 5548-length campaign, and
-a solve hundreds of times dearer).
+**The fixed grid, `log_step`.** `build_grid(log_step=0.01)` gives the grid
+that was the default until October 2026: harmonics of $P_\text{max}$, then a
+constant fractional step $s$ up to $f_\text{max}$,
 
-**Why a 1 per cent step.** The step sets where the spacing leaves the
-harmonics, at a period of $s\,P_\text{max}$. The CREAM paper's tests were
-100-day campaigns, where a 3 per cent step (the default until October 2026)
-crosses over at a 9-day period and was converged. On Fairall 9's 649-day
-campaign it crosses over at about 40 days, so the grid thins out across the
-10 to 40 day band where the echoes have structure: the evidence rose by about
-55 at a 1 per cent step and by only 1 more at 0.5 per cent, and the free lags
-in U and V shortened by about 0.45 days (2 to 3 sigma). The disc's
-temperature didn't move. A 1 per cent step was converged for both, so it is
-the default. It costs about twice the modes of 3 per cent: ~280 for a
-100-day campaign, ~320 for NGC 5548 and ~430 for Fairall 9.
+```math
+\omega_1 = \Delta\omega = \frac{2\pi}{P_\text{max}}, \qquad \omega_{k+1} = \omega_k + \max(\Delta\omega,\ s\,\omega_k), \qquad \omega_k \le 2\pi f_\text{max}.
+```
 
-**Why 2 cycles/day, whatever the cadence.** The echoes carry the driver's
+It is useful to reproduce earlier results. The step was 3 per cent until
+October 2026, then 1 per cent after Fairall 9's 649-day campaign showed 3 per
+cent thinned the 10 to 40 day band where its echoes have structure.
+
+**Why at least 2 cycles/day, whatever the cadence.** The echoes carry the driver's
 variability down to the sharpest feature of the response, its rise near
 zero lag, and high-SNR data resolve it. The earlier default stopped at a
 Nyquist-style limit from the cadence (a 1.6-day period for daily sampling):
 on the CREAM paper's high-SNR synthetic data the log posterior was up to
 ~530 lower than with the finer grid, and on its SNR-100 data the fits
 drifted towards high inclination and accretion rate. Modes the data can't
-constrain only cost time: their prior integrates them out. Raise `f_max`
+constrain only cost time: their prior integrates them out. The automatic
+grid goes beyond `f_max` (up to 4 `f_max`) where the estimated
+signal-to-noise is still high. Raise `f_max`
 for black holes much lighter than ~1e7 Msun, whose responses rise within
 hours; lower it to save time on low-SNR data. `dt_min` sets the upper limit
 as $\pi/\Delta t_\text{min}$ instead.
@@ -582,7 +631,8 @@ After `.optimise(method="laplace")`:
 - **The default warmup length hasn't been tuned.** 500 was ample on the
   benchmark; whether the 1000 default can drop safely across real
   campaigns is unmeasured.
-- **`init_from_optimum`'s effect on warmup** hasn't been benchmarked.
+- **`init_from_optimum`'s effect on warmup** has been benchmarked on one
+  simulated campaign only (section 3).
 - **Benchmarks come from one synthetic dataset.** The dense-over-diagonal
   gain is the most robust result; the solver ratios could shift on much
   larger datasets.

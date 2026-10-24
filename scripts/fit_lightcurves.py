@@ -206,7 +206,13 @@ def _parse_args():
 
     parser.add_argument("--n-freq", type=int, default=None,
                         help="Use the old log-spaced driver grid with this many frequencies (default: "
-                             "build_grid()'s own grid, sized from the baseline and --f-max).")
+                             "build_grid()'s automatic grid, sized from the data).")
+    parser.add_argument("--log-step", type=float, default=None,
+                        help="Use the fixed driver grid (harmonics, then this fractional log step; 0.01 was the "
+                             "default until October 2026) instead of the automatic one.")
+    parser.add_argument("--grid-safety", type=float, default=None,
+                        help="The automatic grid's factor on the estimated signal-to-noise (default 3; larger "
+                             "gives more modes).")
     parser.add_argument("--f-max", type=float, default=None,
                         help="Highest driver frequency, cycles per day (default: build_grid()'s, 2).")
     parser.add_argument("--n-tau", type=int, default=None, help="Lag grid points (default: build_grid()'s own default).")
@@ -264,6 +270,10 @@ def main():
         build_grid_kwargs["n_freq"] = args.n_freq
     if args.f_max is not None:
         build_grid_kwargs["f_max"] = args.f_max
+    if args.log_step is not None:
+        build_grid_kwargs["log_step"] = args.log_step
+    if args.grid_safety is not None:
+        build_grid_kwargs["grid_safety"] = args.grid_safety
     if args.n_tau is not None:
         build_grid_kwargs["n_tau"] = args.n_tau
     if args.tau_max is not None:

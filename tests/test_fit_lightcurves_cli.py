@@ -69,6 +69,15 @@ def test_flags_reach_the_echofit(cli, files):
     assert kwargs["dense_mass"] is False and kwargs["max_tree_depth"] == 6
 
 
+def test_grid_flags(cli, files):
+    ef, _ = cli("--m-bh", 1e8, "--band", "g", 4770, files["g"])
+    assert ef.grid_info["kind"] == "auto"
+    ef, _ = cli("--m-bh", 1e8, "--band", "g", 4770, files["g"], "--grid-safety", 10)
+    assert ef.grid_info["kind"] == "auto" and ef.grid_info["safety"] == 10.0
+    ef, _ = cli("--m-bh", 1e8, "--band", "g", 4770, files["g"], "--log-step", 0.02)
+    assert ef.grid_info == dict(kind="fixed", log_step=0.02, f_max=2.0)
+
+
 def test_diffuse_continuum_can_name_bands_and_defaults_off(cli, files):
     ef, _ = cli("--m-bh", 1e8, "--band", "g", 4770, files["g"], "--band", "i", 7625, files["i"],
                 "--diffuse-continuum", "g")
