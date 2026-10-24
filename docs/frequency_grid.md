@@ -85,3 +85,64 @@ irradiated thin-disc response, real cadences for Fairall 9 and NGC 5548. Each gr
 no fitting, by the KL divergence from all harmonics of $P_\text{max}$ to 4 cycles/day at the true
 parameters. Agreed criterion for "converged": KL about 1 or less and posterior shifts under 0.2 standard
 deviations.
+
+### Exact scores, no fitting
+
+KL divergence from the reference (0 is perfect; about 1 or less is converged), and the number of modes,
+for the automatic grid (`build_grid()`'s default, as shipped) and the fixed 1 per cent grid it replaced:
+
+| campaign | automatic | fixed 1% |
+|---|---|---|
+| 6 Swift-like bands, 200 days, daily, SNR 100 | 377 modes, 0.02 | 327, 0.71 |
+| the same, 100 days | 191, 0.11 | 272, 0.05 |
+| the same, 650 days with seasonal gaps | 813, 0.04 | 426, 37 |
+| the same, 650 days without gaps | 1010, 0.05 | 433, 133 |
+| the same, 1500 days, every 2 days, gaps | 1258, 0.15 | 514, 214 |
+| 6-hourly cadence, 100 days | 306, 0.07 | 273, 2.1 |
+| 3-day cadence | 199, 0.43 | 327, 0.20 |
+| SNR 30 | 215, 0.03 | 327, 0.02 |
+| SNR 700 | 823, 0.02 | 327, 96 |
+| black hole of 1e7 Msun | 446, 0.25 | 327, 16 |
+| black hole of 2.5e8 Msun | 284, 0.04 | 327, 0.48 |
+| g and i only | 159, 0.05 | 327, 0.00 |
+| driver spectrum steepening to f^-3 | 238, 0.14 | 327, 0.33 |
+| the same at SNR 700 | 434, 1.02 | 327, 187 |
+| with an X-ray light curve of the driver | 1323, 0.05 | 327, 6.5 |
+| Fairall 9's cadence and errors | 797, 0.04 | 428, 41 |
+| NGC 5548's cadence and errors (19 light curves) | 768, 0.02 | 357, 4.3 |
+| free lags, 200 days | 1825, 0.22 | 327, 68 |
+| free lags, Fairall 9's cadence | 2494, 0.04 | 428, 35 |
+
+The steep spectrum at SNR 700 is the one case near the limit: the estimate assumes a smoothed random
+walk, and a steeper spectrum has more high-frequency signal than that at high signal-to-noise. It is why
+the safety factor is 3 rather than 2 (KL 1.67 at 2). The free-lag grids are 2 to 2.5 times larger than the
+fitted model needed (849 and 1095 modes), because those light curves are estimated as unsmoothed.
+Estimating them with smoothing too halved the X-ray case's grid at no cost but left both free-lag cases
+unconverged (KL about 5), so it is off.
+
+The post-fit check's prediction on these grids was 0.01 to 0.42 for the automatic grid apart from the
+3-day cadence (1.45, KL 0.43) and the steep SNR-700 case (4.1, KL 1.02), and 1.9 to 361 on every
+unconverged fixed grid. Hence its threshold of 2.
+
+### Fits
+
+Nested Laplace solves (`.optimise()`) on Kaggle (4 CPUs), against a fit on a much finer grid (0.25 per
+cent log steps, or the rule with the true signal-to-noise). Shift: the largest of the accretion rate's and
+the inclination's posterior-mean differences from the reference, in posterior standard deviations.
+
+| campaign | automatic: modes, time, shift, ln Z | fixed 1%: modes, time, shift, ln Z |
+|---|---|---|
+| 6 bands, SNR 100 | 377, 483 s, 0.03, 0.0 | 327, 321 s, 0.10, −0.5 |
+| 1e7 Msun | 446, 759 s, 0.04, −0.3 | 327, 421 s, 0.44, −11.7 |
+| 3-day cadence | 199, 388 s, 0.02, −0.1 | 327, 325 s, 0.06, −1.1 |
+| SNR 700 | 823, 2212 s, 0.07, +0.3 | 327, 394 s, 0.52, −125 |
+| X-ray driver light curve | 1323, 3842 s, 0.17, +1.6 | 327, 422 s, 0.53, −8.1 |
+| 650 days | 813, 1824 s, 0.10, +1.0 | 426, 467 s, 0.67, −64 |
+| Fairall 9's cadence | 797, 1767 s, 0.08, +0.2 | 428, 535 s, 0.75, −28 |
+| NGC 5548's cadence | 768, 3852 s, 0.04, −0.2 | 357, 873 s, 0.16, −5.0 |
+
+Every automatic fit meets the agreed bar. The fixed grid missed it on six of eight: five by posterior
+shifts of 0.39 to 0.75 standard deviations (the accretion rate always higher), and NGC 5548's by its KL
+(4.3). The post-fit check flagged each of those six and, at its threshold of 2, none of the automatic fits (the
+highest was the 3-day cadence's 1.5). The price is time on rich data: 2 to 9 times longer, which is what a converged fit of those
+campaigns costs. On sparse or noisy data the automatic grid is smaller than the fixed one.
