@@ -66,6 +66,13 @@ LARGE_GRID_MODES = 3000
 # grid is KL ~1 or less: at 1 it warned falsely on a 3-day cadence (predicted
 # 1.45, exact 0.43). Every unconverged grid tested predicted 1.9 or more.
 CHECK_LOSS = 2.0
+# The factor on the estimated rho of light curves estimated unsmoothed (driver
+# light curves and free-lag bands). SAFETY covers the smoothed-random-walk
+# estimate's shape being wrong for a steeper spectrum; these light curves are
+# estimated with exactly the model's own w^-2 shape, and tripling a w^-2 rho
+# pushes the harmonic region sqrt(3) further out: with SAFETY on them too, an
+# X-ray driver light curve got 1323 modes where 719 were enough.
+UNSMOOTHED_SAFETY = 1.0
 # Whether the estimate fits a smoothing timescale to driver light curves and
 # free-lag bands too. False: they are estimated as unsmoothed random walks,
 # as the model treats them, which over-provisions (2-4x the modes needed on
@@ -178,7 +185,9 @@ def _gp_nll_grad(theta, D, r, yerr2, tau_long, smoothing):
     nll = 0.5 * float(r @ alpha) + float(np.log(np.diag(cf[0])).sum())
     if not np.isfinite(nll):
         return 1e30, np.zeros_like(theta)
-    Q = sla.cho_solve(cf, np.eye(len(r)), check_finite=False) - np.outer(alpha, alpha)
+    from .gram import _cho_inverse
+
+    Q = _cho_inverse(cf) - np.outer(alpha, alpha)
     g_A = 0.5 * float(np.sum(Q * Ks))      # dK/dlnA = Ks
     g_c = 0.5 * float(np.trace(Q)) * c     # dK/dlnc = c I
     if not smoothing:
@@ -230,12 +239,15 @@ def fit_light_curve_power(t, y, yerr, smoothing: bool = True, max_points: int = 
                 nll=float(best.fun))
 
 
-def estimate_rho(curves: Dict[str, dict], T: float) -> Tuple[Optional[Callable], dict]:
+def estimate_rho(curves: Dict[str, dict], T: float, safety: float = 1.0,
+                 unsmoothed_safety: float = 1.0) -> Tuple[Optional[Callable], dict]:
     """Summed signal-to-noise per resolved pair, estimated from each light
     curve alone. ``curves``: name -> dict with ``t``, ``y``, ``yerr`` and
     ``smoothing`` (False for a light curve the model treats as the
-    unsmoothed driver: a driver light curve or a free-lag band). Returns
-    ``(rho_fn, fits)``, ``rho_fn`` None if no light curve could be used."""
+    unsmoothed driver: a driver light curve or a free-lag band). Each light
+    curve's term is multiplied by ``safety``, or ``unsmoothed_safety`` if it is
+    estimated unsmoothed. Returns ``(rho_fn, fits)``, ``rho_fn`` None if no
+    light curve could be used."""
     terms, fits = [], {}
     for name, d in curves.items():
         t, y, yerr = (np.asarray(d[k], dtype=np.float64) for k in ("t", "y", "yerr"))
@@ -254,7 +266,7 @@ def estimate_rho(curves: Dict[str, dict], T: float) -> Tuple[Optional[Callable],
             continue
         nz = float(np.sum(0.5 / (yerr[ok] ** 2 + p["c"])))
         fits[name] = p
-        terms.append((p["A"], p["b"], p["tau_long"], nz))
+        terms.append((p["A"], p["b"], p["tau_long"], nz * (safety if d["smoothing"] else unsmoothed_safety)))
     if not terms:
         return None, fits
 

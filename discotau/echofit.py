@@ -597,7 +597,10 @@ class EchoFit:
             The automatic grid's factor on the estimated signal-to-noise
             (default 3). Larger gives more modes. The estimate assumes a
             smoothed random walk; 3 kept the expected loss at or below ~1 in
-            log evidence on every simulated campaign tested.
+            log evidence on every simulated campaign tested. Driver light
+            curves and free-lag bands, estimated with the model's own
+            unsmoothed shape, take ``frequency_grid.UNSMOOTHED_SAFETY`` (1)
+            instead.
         period_max : float, optional
             Longest driver period (days); sets the frequency grid's lower
             bound ``w_min = 2 pi / period_max``. Defaults to twice the
@@ -656,7 +659,7 @@ class EchoFit:
             curves["driver"] = dict(t=self.driver_data["t"], y=self.driver_data["y"], yerr=self.driver_data["yerr"],
                                     smoothing=fg.SMOOTH_ALL)
         t0 = time.perf_counter()
-        rho, fits = fg.estimate_rho(curves, t_span)
+        rho, fits = fg.estimate_rho(curves, t_span, safety=safety, unsmoothed_safety=fg.UNSMOOTHED_SAFETY)
         if rho is None:
             warnings.warn("build_grid(): no light curve could be used for the automatic frequency grid; "
                           f"using the fixed grid (log_step={FREQ_LOG_STEP}).")
@@ -664,14 +667,13 @@ class EchoFit:
                     dict(kind="fixed", log_step=FREQ_LOG_STEP, f_max=float(f_max), fallback=True))
         h = 2 * np.pi / period_max
         f_cap = fg.F_CAP_FACTOR * f_max
-        scaled = fg.tabulated(lambda w: safety * rho(w), h, 2 * np.pi * f_cap)
+        scaled = fg.tabulated(rho, h, 2 * np.pi * f_cap)
         w, info = fg.design_grid(scaled, t_span, period_max, window=t_span + tau_max, f_min=f_max, f_cap=f_cap)
         if len(w) > fg.LARGE_GRID_MODES:
             warnings.warn(f"build_grid(): the automatic frequency grid has {len(w)} driver modes, so each "
-                          "likelihood evaluation will be slow. Free-lag bands and driver light curves are "
-                          "estimated as unsmoothed, which is conservative; build_grid(log_step=0.01) gives the "
-                          "smaller fixed grid, and check_frequency_grid() after a fit says whether it was enough.")
-        info.update(kind="auto", safety=float(safety), n_modes=int(len(w)), estimate_seconds=time.perf_counter() - t0,
+                          "likelihood evaluation will be slow. build_grid(log_step=0.01) gives the smaller fixed "
+                          "grid, and check_frequency_grid() after a fit says whether it was enough.")
+        info.update(kind="auto", safety=float(safety), unsmoothed_safety=float(fg.UNSMOOTHED_SAFETY), n_modes=int(len(w)), estimate_seconds=time.perf_counter() - t0,
                     light_curves={k: dict(v) for k, v in fits.items()})
         return jnp.asarray(w), info
 

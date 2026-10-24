@@ -208,3 +208,16 @@ def test_check_frequency_grid_flags_a_coarse_grid_and_suggests_a_finer_one():
     assert check["suggested_n_modes"] > 20
     ef.freqs = np.asarray(check["suggested_freqs"], dtype=np.float32)
     assert ef.check_frequency_grid(params=params, warn=False)["predicted_loss"] < frequency_grid.CHECK_LOSS
+
+
+def test_driver_light_curves_take_the_unsmoothed_safety_factor(monkeypatch):
+    ef = _red_noise_echofit(snr=100.0)
+    d = ef.bands["g"]
+    ef.add_driver_lightcurve(t=d["t"], y=d["y"], yerr=d["yerr"])
+    sizes = {}
+    for factor in (1.0, 3.0):
+        monkeypatch.setattr(frequency_grid, "UNSMOOTHED_SAFETY", factor)
+        ef.build_grid(n_tau=30, tau_max=40.0)
+        sizes[factor] = len(ef.freqs)
+        assert ef.grid_info["unsmoothed_safety"] == factor and ef.grid_info["safety"] == frequency_grid.SAFETY
+    assert sizes[1.0] < sizes[3.0]
