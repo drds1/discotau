@@ -77,6 +77,12 @@ DEFAULT_GRID_PARAMS = ("log_mdot_msun_yr", "cos_inclination", "temperature_slope
 # broad plateau at ~e^-10 relative density (responses running far beyond the
 # lag grid 10-15 dex above typical_log_mdot) stretch the grid to ~1 dex per row.
 MODE_DROP = 12.0
+# A seed's L-BFGS run stops once an iterate is inside an already found mode:
+# within MERGE_SD of it (Mahalanobis, the mode's Hessian) and within
+# MERGE_POTENTIAL of its minimum. The seeds (scout peaks, random restarts) mostly
+# rediscover the same mode, each at ~200 gradients and an exact Hessian.
+MERGE_SD = 2.0
+MERGE_POTENTIAL = 2.0
 # Memory for scoring the importance-sampling draws through the vmapped
 # potential: each point holds its own (N + p) x p marginal factorisation, so a
 # fixed chunk of 250 reached ~20 GB at ~1150 driver modes on ~3000 points and
@@ -537,7 +543,7 @@ def run(model, kwargs, info, num_samples: int = 1000, rng_seed: int = 0,
 
     res = minimize(objective, np.asarray(prob.z0, dtype=np.float64), jac=True, method="L-BFGS-B",
                    options=dict(ftol=1e-7, gtol=1e-3, maxiter=1000))
-    z_hat, _, h_full = _polish(prob, objective, res.x, sd=lbfgs_sd(res))
+    z_hat, f_hat, h_full = _polish(prob, objective, res.x, sd=lbfgs_sd(res))
     theta_hat = np.array([float(prob.transforms[n](jnp.asarray(z_hat[i]))) for n, i in zip(prob.names, prob.outer)])
     h_rr0 = _saddle_free(h_full[np.ix_(prob.inner, prob.inner)])[0]
     logdet0 = np.linalg.slogdet(h_rr0)[1]
@@ -565,7 +571,10 @@ def run(model, kwargs, info, num_samples: int = 1000, rng_seed: int = 0,
             scout_box.append((lo, hi))
     axes = [_cell_axis(lo, hi, n) for (lo, hi), n in zip(scout_box, n_pass)]
     thetas, idx, shape = _product(axes)
+    g_before = prob.n_grad
     scout = _solve_points(prob, thetas, idx, start, h_rr0, rough=True)
+    timings["scout_gradients"] = prob.n_grad - g_before
+    timings["scout_seconds"] = time.perf_counter() - t0
     scout_logp = np.array([_log_marginal(p, logdet0, d_in) for p in scout]).reshape(shape)
     finite = np.where(np.isfinite(scout_logp), scout_logp, -np.inf)
     peaks = np.where((maximum_filter(finite, size=3, mode="nearest") == finite).ravel()
@@ -578,36 +587,78 @@ def run(model, kwargs, info, num_samples: int = 1000, rng_seed: int = 0,
     # parameters have optima of their own: on the demo's diffuse-continuum fit
     # the data-anchored start and the scout seeds all led to a basin ~3400 in
     # log evidence below the one a perturbed restart found.
+    t_modes = time.perf_counter()
     rng_seeds = np.random.default_rng(rng_seed)
     seeds = [z_hat] + [np.asarray(prob.assemble(jnp.asarray(scout[k]["zr"], dtype=prob.dtype),
                                                 jnp.asarray(scout[k]["zo"], dtype=prob.dtype)), dtype=np.float64)
                        for k in peaks]
     seeds += [np.asarray(prob.z0, dtype=np.float64) + restart_scale * rng_seeds.normal(size=prob.z0.size)
               for _ in range(num_restarts - 1)]
-    modes = []
-    for zs in seeds:
-        m = minimize(objective, zs, jac=True, method="L-BFGS-B", options=dict(ftol=1e-7, gtol=1e-3, maxiter=1000))
+    def make_mode(x, fun, h):
+        vals, vecs = np.linalg.eigh(h)
+        if vals.min() <= 0:
+            vals = np.clip(np.abs(vals), 1e-8, None)
+        cov = (vecs / vals) @ vecs.T
+        zo = x[prob.outer]
+        sd_z = np.sqrt(np.diag(cov)[prob.outer])
+        theta = np.array([float(prob.transforms[n](jnp.asarray(z))) for n, z in zip(prob.names, zo)])
+        # Outer posterior sd in constrained units, via d theta / d z at the mode.
+        dtheta = np.exp([float(prob.transforms[n].log_abs_det_jacobian(jnp.asarray(z), jnp.asarray(t)))
+                         for n, z, t in zip(prob.names, zo, theta)])
+        return dict(theta=theta, sd=sd_z * dtheta, z=x, U=float(fun), cov=cov, h=(vals, vecs),
+                    logdet_h=float(np.sum(np.log(vals))), log_evidence=-float(fun) - 0.5 * float(np.sum(np.log(vals))))
+
+    def inside_known_mode(x, f):
+        """Whether an L-BFGS iterate is already in a found mode's core: within
+        2 sd of it (its own Hessian) and within 2 of its minimum. L-BFGS only
+        descends, so from there it converges to that mode; a seed bound for a
+        different mode never passes this test and runs to the end."""
+        for o in modes:
+            if f > o["U"] + MERGE_POTENTIAL:
+                continue
+            vals, vecs = o["h"]
+            e = vecs.T @ (x - o["z"])
+            if float(e @ (vals * e)) < MERGE_SD ** 2:
+                return True
+        return False
+
+    # The start is already L-BFGS plus the Newton polish: it is the first mode
+    # as it stands (re-optimising it repeated both, Hessian included).
+    modes = [make_mode(z_hat, f_hat, h_full)]
+    timings["seeds_merged_early"] = 0
+    g_before = prob.n_grad
+    for zs in seeds[1:]:
+        merged = []
+
+        def stop_if_known(intermediate_result):
+            if inside_known_mode(np.asarray(intermediate_result.x, dtype=np.float64), float(intermediate_result.fun)):
+                merged.append(True)
+                raise StopIteration
+
+        try:
+            m = minimize(objective, zs, jac=True, method="L-BFGS-B", callback=stop_if_known,
+                         options=dict(ftol=1e-7, gtol=1e-3, maxiter=1000))
+        except StopIteration:  # scipy < 1.11 propagates it
+            merged.append(True)
+        if merged:
+            timings["seeds_merged_early"] += 1
+            continue
         if not np.isfinite(m.fun) or m.fun >= 1e9:
+            continue
+        if inside_known_mode(np.asarray(m.x, dtype=np.float64), float(m.fun)):
+            timings["seeds_merged_early"] += 1
             continue
         try:
             m.x, m.fun, h = _polish(prob, objective, m.x, sd=lbfgs_sd(m))
         except NonFiniteHessianError:
             timings["modes_skipped_nonfinite"] = timings.get("modes_skipped_nonfinite", 0) + 1
             continue
-        vals, vecs = np.linalg.eigh(h)
-        if vals.min() <= 0:
-            vals = np.clip(np.abs(vals), 1e-8, None)
-        cov = (vecs / vals) @ vecs.T
-        zo = m.x[prob.outer]
-        sd_z = np.sqrt(np.diag(cov)[prob.outer])
-        theta = np.array([float(prob.transforms[n](jnp.asarray(z))) for n, z in zip(prob.names, zo)])
-        # Outer posterior sd in constrained units, via d theta / d z at the mode.
-        dtheta = np.exp([float(prob.transforms[n].log_abs_det_jacobian(jnp.asarray(z), jnp.asarray(t)))
-                         for n, z, t in zip(prob.names, zo, theta)])
-        mode = dict(theta=theta, sd=sd_z * dtheta, z=m.x, U=float(m.fun), cov=cov, logdet_h=float(np.sum(np.log(vals))),
-                    log_evidence=-float(m.fun) - 0.5 * float(np.sum(np.log(vals))))
+        mode = make_mode(m.x, m.fun, h)
         if not any(np.all(np.abs(mode["theta"] - o["theta"]) < 0.5 * np.maximum(o["sd"], 1e-6)) for o in modes):
             modes.append(mode)
+    timings["seeds_tried"] = len(seeds)
+    timings["modes_gradients"] = prob.n_grad - g_before
+    timings["modes_seconds"] = time.perf_counter() - t_modes
     if not modes:
         raise RuntimeError("nested_laplace: no mode found")
     top = max(o["log_evidence"] for o in modes)
@@ -627,6 +678,7 @@ def run(model, kwargs, info, num_samples: int = 1000, rng_seed: int = 0,
     best_mode = max(modes, key=lambda o: o["log_evidence"])
     best = dict(theta=best_mode["theta"], zr=best_mode["z"][prob.inner], h_rr=h_rr0)
     passes = [dict(axes=axes, logp=scout_logp)]
+    t_zoom, g_before = time.perf_counter(), prob.n_grad
     for _ in range(max_passes):
         axes = [_cell_axis(lo, hi, n) for (lo, hi), n in zip(box, n_pass)]
         thetas, idx, shape = _product(axes)
@@ -661,6 +713,8 @@ def run(model, kwargs, info, num_samples: int = 1000, rng_seed: int = 0,
     box = [(max(lo, b[0]), min(hi, b[1])) for (lo, hi), b in zip(box, bounds)]
     timings["search_seconds"] = time.perf_counter() - t0
     timings["search_passes"] = len(passes)
+    timings["zoom_seconds"] = time.perf_counter() - t_zoom
+    timings["zoom_gradients"] = prob.n_grad - g_before
 
     # 4. Final grid: exact Hessians on a sub-lattice, the rest from it.
     t0 = time.perf_counter()

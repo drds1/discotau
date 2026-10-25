@@ -258,8 +258,12 @@ def _host_inputs(ef, params):
     return marg["gram_cache"], grabbed["x"]
 
 
+@pytest.mark.parametrize("space", ["p", "n"])
 @pytest.mark.parametrize("error_model", [(), ("g", "driver")])
-def test_scalar_hessian_matches_finite_differences(data, error_model, host):
+def test_scalar_hessian_matches_finite_differences(data, error_model, host, space, monkeypatch):
+    import discotau.gram as gram
+
+    monkeypatch.setattr(gram, "SCALAR_HESSIAN_SPACE", space)
     ef = _echofit(data, driver=True, error_model=error_model)
     params = _params(ef, 8)
     for n in error_model:
@@ -298,6 +302,21 @@ def test_scalar_hessian_matches_finite_differences(data, error_model, host):
         fd[:, i] = (grad(e) - grad(-e)) / (2 * eps)
     fd = 0.5 * (fd + fd.T)
     assert np.allclose(H, fd, rtol=2e-4, atol=2e-4 * np.abs(fd).max()), np.max(np.abs(H - fd))
+
+
+@pytest.mark.parametrize("error_model", [(), ("g", "driver"), ("g", "i", "u", "driver")])
+def test_scalar_hessian_data_space_equals_parameter_space(data, error_model):
+    """The data-space form (sums over N x N blocks) is the parameter-space
+    one rewritten term for term: equal to rounding."""
+    ef = _echofit(data, driver=True, error_model=error_model)
+    params = _params(ef, 3)
+    for n in error_model:
+        params[f"sigma_jitter_{n}"] = jnp.asarray(0.3 * float(np.mean(data["bands"]["g"]["yerr"])))
+    cache, x = _host_inputs(ef, params)
+    Hp, names_p = cache._scalar_hessian_pspace(*x)
+    Hn, names_n = cache._scalar_hessian_nspace(*x)
+    assert names_p == names_n
+    assert np.allclose(Hn, Hp, rtol=1e-7, atol=1e-9 * np.abs(Hp).max()), np.max(np.abs(Hn - Hp))
 
 
 @pytest.mark.parametrize("error_model", [(), ("g", "driver")])

@@ -35,6 +35,28 @@ bands), the data-adaptive relative of exponential-sum approximations of 1/x
 weights at any ``u`` project exactly onto ``r`` coefficients, and every Gram
 quantity is the same combination of ``r`` precomputed ones.
 
+The complex form (light curves in Gram mode with fixed noise). With
+``m_j = M_C[:, j] + i M_S[:, j] = conj(gamma_j) exp(i w_j t)``,
+``gamma = a + i b``, a light curve's contribution to P's driver block is fixed
+by two complex K x K matrices built once,
+``E1_jk = sum_i w_i exp(i (w_j - w_k) t_i)`` (Hermitian) and
+``E2_jk = sum_i w_i exp(i (w_j + w_k) t_i)`` (symmetric):
+
+    A = diag(conj gamma) E2 diag(conj gamma),   B = diag(conj gamma) E1 diag(gamma),
+    P_CC = Re(A + B) / 2,  P_SS = Re(B - A) / 2,  P_CS = Im(A - B) / 2  (C rows, S columns).
+
+Summed over light curves by ``einsum("bj,bk,bjk->jk")``, one streaming pass
+each with no K x K temporaries. With ``dL/dP = -W / 2`` and
+``X = (G_CC - G_SS)/2 - i G_CS``, ``Y = (G_CC + G_SS)/2 + i G_CS`` (G the
+blocks of ``-W/2``), ``dL = Re sum(X o dA + Y o dB)``, so
+``dL/da = Re(g1 + g2)``, ``dL/db = Im(g1 - g2)`` with
+``g1 = ((X + X^T) o E2) conj(gamma) + (Y o E1) gamma`` and
+``g2_k = sum_j Y_jk E1_jk conj(gamma_j)``: three more passes. On Kaggle this
+made the gradient 1.5-2.6x faster (NGC 5548's cadence, 768 modes, 1.1 s ->
+0.43 s), the assembly ~4.5x; the same numbers to ~1e-11. Light curves with
+the error model stay in dense mode ("auto"). Threading the einsums over light
+curves gave nothing: they are memory-bound.
+
 Gradients: with ``u = P^-1 c`` and ``W = P^-1 + u u^T``,
 ``dL/dR_b = h_b u^T - G_b R_b W - G_E,b W_E``, of which only the 2x2 diagonal
 sub-blocks matter, and the error-model parameters through the ``r``
@@ -62,6 +84,13 @@ U_SPAN = (1e-6, 1e4)
 # dense): Fairall 9's cadence 0.66 / 0.23 / 0.42; NGC 5548's 0.65 / 0.30 / 0.48,
 # and with the error model 0.64 / 0.80 / 0.48.
 HOST_METHOD = "auto"
+# The exact scalar Hessian in parameter space ("p": p x p products per
+# parameter, ~(2 B + n_noise) p^3) or data space ("n": a few N x N matrices,
+# ~2 N^2 p); "auto" picks the cheaper that fits NSPACE_MEMORY_BYTES (it holds
+# up to ~8 N x N arrays). On NGC 5548's cadence with the error model (N = 4350,
+# p = 1574, 19 light curves) the parameter-space form took 44 s a call.
+SCALAR_HESSIAN_SPACE = "auto"
+NSPACE_MEMORY_BYTES = 3.0e9
 
 
 class GramCache:
@@ -143,6 +172,19 @@ class GramCache:
                            Gsc=np.ascontiguousarray(G[:, :K, K:]), Gcc=np.ascontiguousarray(G[:, K:, K:]),
                            G=G, GE=np.stack(GE), EE=np.stack(EE), h=np.stack(h), hE=np.stack(hE), yy=np.array(yy))
             blocks.append(blk)
+        # Gram-mode light curves with fixed noise go to the complex form: E1 and
+        # E2 replace their Gss, Gsc, Gcc (the complex form, module docstring).
+        self._cx = np.array([k for k, b in enumerate(blocks) if b["mode"] == "gram" and not b["projected"]], int)
+        if len(self._cx):
+            E1, E2 = [], []
+            for k in self._cx:
+                blk = blocks[k]
+                blk["mode"] = "complex"
+                Gss, Gsc, Gcc = blk.pop("Gss")[0], blk.pop("Gsc")[0], blk.pop("Gcc")[0]
+                del blk["G"]
+                E1.append((Gcc + Gss) + 1j * (Gsc - Gsc.T))
+                E2.append((Gcc - Gss) + 1j * (Gsc + Gsc.T))
+            self._E1, self._E2 = np.stack(E1), np.stack(E2)
         self._blocks = blocks
         self.n_dense = row0
         self.N = int(sum(len(b["e2"]) for b in blocks))
@@ -194,11 +236,24 @@ class GramCache:
                 parts.append(dict(sw=sw, sig2=sig2))
                 continue
             q, dq_ds, dq_dj = self._coeffs(blk, s[k], j[k])
+            GE = np.tensordot(q, blk["GE"], 1)
+            if blk["mode"] == "complex":
+                # P_tt for these comes from the einsums after the loop.
+                RtGE = _rt(ak, bk, GE)
+                ei = blk["e_idx"]
+                P[:2 * K, ei] += RtGE
+                P[ei, :2 * K] += RtGE.T
+                P[np.ix_(ei, ei)] += np.tensordot(q, blk["EE"], 1)
+                h = q @ blk["h"]
+                cvec[:2 * K] += _rt(ak, bk, h[:, None])[:, 0]
+                cvec[ei] += q @ blk["hE"]
+                yy += float(q @ blk["yy"])
+                parts.append(dict(GE=GE, h=h, sig2=sig2))
+                continue
             if blk["projected"]:
                 Gss, Gsc, Gcc = (np.tensordot(q, blk[n], 1) for n in ("Gss", "Gsc", "Gcc"))
             else:
                 Gss, Gsc, Gcc = blk["Gss"][0], blk["Gsc"][0], blk["Gcc"][0]
-            GE = np.tensordot(q, blk["GE"], 1)
             Gcs = Gsc.T
             GR_sS = Gss * ak - Gsc * bk
             GR_sC = Gss * bk + Gsc * ak
@@ -224,11 +279,19 @@ class GramCache:
             yy += float(q @ blk["yy"])
             parts.append(dict(q=q, dq_ds=dq_ds, dq_dj=dq_dj, GR=(GR_sS, GR_sC, GR_cS, GR_cC), GE=GE, h=h,
                               sig2=sig2))
+        if len(self._cx):
+            cg = a[self._cx] - 1j * b[self._cx]
+            A = np.einsum("bj,bk,bjk->jk", cg, cg, self._E2)
+            Bm = np.einsum("bj,bk,bjk->jk", cg, np.conj(cg), self._E1)
+            P[:K, :K] += 0.5 * (Bm.real - A.real)
+            P[K:2 * K, K:2 * K] += 0.5 * (A.real + Bm.real)
+            PCS = 0.5 * (A.imag - Bm.imag)
+            P[K:2 * K, :K] += PCS
+            P[:K, K:2 * K] += PCS.T
         if self.n_dense:
             from scipy.linalg.blas import dsyrk
 
-            Pd = dsyrk(1.0, Mt, trans=1, lower=0)
-            P += np.triu(Pd) + np.triu(Pd, 1).T
+            P += _symmetrise(dsyrk(1.0, Mt, trans=1, lower=0), lower=False)
             cvec += Mt.T @ yw
             yy += float(yw @ yw)
         P[np.diag_indices(p)] += 1.0
@@ -261,15 +324,27 @@ class GramCache:
         u = sla.cho_solve(cf, cvec, check_finite=False)
         logdetP = 2.0 * np.sum(np.log(np.diag(cf[0])))
         L = -0.5 * (yy - cvec @ u + logdetP + logdetD + self.N * np.log(2.0 * np.pi))
-        W = sla.cho_solve(cf, np.eye(self.p), check_finite=False)
+        W = _cho_inverse(cf)
         W += np.outer(u, u)
         Wtt, ut = W[:2 * K, :2 * K], u[:2 * K]
         WS, WC = Wtt[:K], Wtt[K:]
+        da, db = np.zeros_like(a), np.zeros_like(b)
+        ds, dj = np.zeros_like(s), np.zeros_like(j)
+        if len(self._cx):
+            # dL/dP = -W/2; on the (S, C) block, dL = Re sum(X o dA + Y o dB) (the complex form, module docstring).
+            GSS, GCC, GCS = -0.5 * W[:K, :K], -0.5 * W[K:2 * K, K:2 * K], -0.5 * W[K:2 * K, :K]
+            X = 0.5 * (GCC - GSS) - 1j * GCS
+            Y = 0.5 * (GCC + GSS) + 1j * GCS
+            cg = a[self._cx] - 1j * b[self._cx]
+            g1 = (np.einsum("jk,bjk,bk->bj", X + X.T, self._E2, cg)
+                  + np.einsum("jk,bjk,bk->bj", Y, self._E1, np.conj(cg)))
+            # E1 is Hermitian: sum_j Y_jk E1_jk conj(gamma_j) = conj(sum_j conj(Y)_jk E1_kj gamma_j).
+            g2 = np.conj(np.einsum("kj,bkj,bj->bk", np.ascontiguousarray(np.conj(Y.T)), self._E1, np.conj(cg)))
+            da[self._cx] = (g1 + g2).real
+            db[self._cx] = (g1 - g2).imag
         if self.n_dense:
             dM = np.outer(yw, u) - Mt @ W          # dL/dM~ for the dense rows
             dy = Mt @ u - yw                        # dL/dy~
-        da, db = np.zeros_like(a), np.zeros_like(b)
-        ds, dj = np.zeros_like(s), np.zeros_like(j)
         for k, (blk, pt) in enumerate(zip(self._blocks, parts)):
             ei = blk["e_idx"]
             if blk["mode"] == "dense":
@@ -287,6 +362,15 @@ class GramCache:
                     dsig2 = dsw * (-0.5) * sw ** 3 - 0.5 / pt["sig2"]
                     ds[k] = float(np.sum(dsig2 * 2.0 * s[k] * blk["e2"]))
                     dj[k] = float(np.sum(dsig2 * 2.0 * j[k]))
+                continue
+            if blk["mode"] == "complex":
+                # The data projections (dL/dc = u) and the offset/background cross block
+                # (dL/dP_tE = -W_tE, both copies), with R^T rows S = a X_s - b X_c, C = b X_s + a X_c.
+                h, GE = pt["h"], pt["GE"]
+                WSE, WCE = W[:K, ei], W[K:2 * K, ei]
+                GEs, GEc = GE[:K], GE[K:]
+                da[k] += ut[:K] * h[:K] + ut[K:] * h[K:] - np.sum(WSE * GEs + WCE * GEc, axis=1)
+                db[k] += -ut[:K] * h[K:] + ut[K:] * h[:K] - np.sum(WCE * GEs - WSE * GEc, axis=1)
                 continue
             Wet = W[ei, :2 * K]
             (GR_sS, GR_sC, GR_cS, GR_cC), GE, h = pt["GR"], pt["GE"], pt["h"]
@@ -340,6 +424,26 @@ class GramCache:
 
     def scalar_hessian(self, a, b, s, j):
         """Exact Hessian of the log likelihood with respect to every light
+        curve's log scale and, with the error model, its error scale and
+        jitter: see :meth:`_scalar_hessian_pspace`. Computed in data space
+        (:meth:`_scalar_hessian_nspace`) when that is cheaper and fits in
+        memory (``SCALAR_HESSIAN_SPACE``)."""
+        self.build()
+        n_lam = len(self._blocks)
+        n_noise = 2 * sum(bool(blk["projected"]) for blk in self._blocks)
+        N, p = self.N, self.p
+        cost_p = (2 * n_lam + n_noise) * float(p) ** 3
+        cost_n = 2.0 * float(N) ** 2 * p
+        fits = 8 * 8.0 * N * N <= NSPACE_MEMORY_BYTES
+        space = SCALAR_HESSIAN_SPACE
+        if space == "auto":
+            space = "n" if (cost_n < cost_p and fits) else "p"
+        if space == "n":
+            return self._scalar_hessian_nspace(a, b, s, j)
+        return self._scalar_hessian_pspace(a, b, s, j)
+
+    def _scalar_hessian_pspace(self, a, b, s, j):
+        """Exact Hessian of the log likelihood with respect to every light
         curve's log scale ``lambda_b`` (``a, b -> e^dlambda (a, b)``: the log of
         gain_b * sigma_drw) and, for light curves with the error model, the logs
         of its error scale and jitter. Returns ``(H, names)`` with ``names`` the
@@ -372,7 +476,7 @@ class GramCache:
         WZ = Z * w[:, None]
         P = np.eye(p) + Z.T @ WZ
         cf = sla.cho_factor(P, lower=True, check_finite=False)
-        Sg = sla.cho_solve(cf, np.eye(p), check_finite=False)
+        Sg = _cho_inverse(cf)
         u = Sg @ (WZ.T @ y)
         alpha = w * (y - Z @ u)
         V = WZ @ Sg                                   # Q Z = W Z S
@@ -474,6 +578,148 @@ class GramCache:
                 H[i_, i2] = H[i2, i_] = h
         return H, params
 
+    def _scalar_hessian_nspace(self, a, b, s, j):
+        """:meth:`_scalar_hessian_pspace`'s Hessian, term for term, with every
+        trace over p x p products rewritten as a sum over blocks of N x N
+        matrices. With Zd the design rows' driver columns only, A = W Z and
+        S = P^-1, everything comes from Kdd = Zd S Zd^T (one triangular solve
+        and one product), its rank-n_E corrections to Zd S Z^T and Z S Z^T, and
+        Kd = Zd Zd^T, e.g. tr(B_j^T C_i) = sum over rows a of band j and b of
+        band i of (W Z S Z^T W)_ab Kd_ab. The v_i S v_j term (the T1 + T2 pair
+        that cancels to ~1e-3 of its parts) keeps its analytic form."""
+        from scipy.linalg import solve_triangular
+
+        self.build()
+        a, b, s, j = (np.asarray(x, dtype=np.float64) for x in (a, b, s, j))
+        K, p = self.K, self.p
+        blocks = self._blocks
+        sizes = [len(blk["e2"]) for blk in blocks]
+        starts = np.cumsum([0] + sizes)
+        N = int(starts[-1])
+        Z = np.zeros((N, p))
+        Dvec = np.empty(N)
+        y = np.empty(N)
+        for k, blk in enumerate(blocks):
+            r = slice(starts[k], starts[k + 1])
+            Z[r, :K] = blk["sin"] * a[k] - blk["cos"] * b[k]
+            Z[r, K:2 * K] = blk["sin"] * b[k] + blk["cos"] * a[k]
+            Z[r, blk["e_idx"]] = blk["E"]
+            Dvec[r] = s[k] ** 2 * blk["e2"] + j[k] ** 2
+            y[r] = blk["yt"]
+        w = 1.0 / Dvec
+        WZ = Z * w[:, None]
+        P = np.eye(p) + Z.T @ WZ
+        cf = sla.cho_factor(P, lower=True, check_finite=False)
+        Sg = _cho_inverse(cf)
+        u = Sg @ (WZ.T @ y)
+        alpha = w * (y - Z @ u)
+        Zd = Z[:, :2 * K]
+        ZE = Z[:, 2 * K:]
+        # Kdd = Zd S Zd^T = Y^T Y with Y = L^-1 Zd^T (S's driver block is not
+        # S restricted: Zd here is N x 2K and S is p x p, so pad with zeros).
+        Zd_full = np.zeros((N, p))
+        Zd_full[:, :2 * K] = Zd
+        Y = solve_triangular(cf[0], Zd_full.T, lower=True, check_finite=False)
+        Kdd = Y.T @ Y
+        del Y, Zd_full
+        SE = Sg[:, 2 * K:]                       # p x n_E
+        Cde = (Zd @ SE[:2 * K]) @ ZE.T           # Zd S Ze^T, rank n_E
+        KdZ = Kdd + Cde                          # Zd S Z^T
+        KZ = KdZ + Cde.T + ZE @ (Sg[2 * K:, 2 * K:] @ ZE.T)   # Z S Z^T
+        del Cde
+        Kd = Zd @ Zd.T
+        dKdZ, dKdd, dKd = np.diag(KdZ).copy(), np.diag(Kdd).copy(), np.diag(Kd).copy()
+        st = starts[:-1]
+
+        def bsum(M):
+            return np.add.reduceat(np.add.reduceat(M, st, axis=0), st, axis=1)
+
+        WKZW = KZ * w[:, None]
+        WKZW *= w[None, :]
+        S_BC = bsum(WKZW * Kd)                   # tr(B_j^T C_i), block [j, i]
+        S_BF = bsum(WKZW * Kdd)                  # tr(B_j^T F_i)
+        del Kd, Kdd
+        M2 = KdZ * w[None, :]
+        S_CC = bsum(M2 * M2.T)                   # tr(C_i C_j)
+        del M2
+        params = [("lambda", k) for k in range(len(blocks))]
+        params += [(kind, k) for k, blk in enumerate(blocks) if blk["projected"] for kind in ("log_s", "log_j")]
+        n = len(params)
+        rows_of = [slice(starts[k], starts[k + 1]) for k in range(len(blocks))]
+        info = []
+        for kind, k in params:
+            r = rows_of[k]
+            if kind == "lambda":
+                g = Zd[r].T @ alpha[r]                               # Z_t^T alpha (driver part)
+                g_full = np.zeros(p)
+                g_full[:2 * K] = g
+                Zu = Zd[r] @ u[:2 * K]
+                v = g_full - WZ[r].T @ Zu                            # g - B_t u
+                beta = Z @ g_full
+                beta[r] += Zu
+                info.append(dict(kind=kind, k=k, v=v, beta=beta, gu=float(g @ u[:2 * K]),
+                                 zwz=float(Zu @ (w[r] * Zu)), trC=float(np.sum(w[r] * dKdZ[r])),
+                                 trG=float(np.sum(w[r] * dKd[r])), trGS=float(np.sum(w[r] * dKdd[r]))))
+            else:
+                e2 = blocks[k]["e2"]
+                d1 = 2.0 * (s[k] ** 2 * e2 if kind == "log_s" else np.full(sizes[k], j[k] ** 2))
+                beta = np.zeros(N)
+                beta[r] = d1 * alpha[r]
+                info.append(dict(kind=kind, k=k, d1=d1, d2=2.0 * d1, beta=beta))
+        noise = [i for i, it in enumerate(info) if it["kind"] != "lambda"]
+        if noise:
+            Dm = np.zeros((N, len(noise)))
+            for c, i in enumerate(noise):
+                Dm[rows_of[info[i]["k"]], c] = info[i]["d1"]
+            Q = -WKZW
+            Q[np.diag_indices(N)] += w
+            Qdiag = np.diag(Q).copy()
+            Q *= Q
+            term_a = Dm.T @ (Q @ Dm)                              # sum_ik Q_ik^2 D_t,i D_t',k
+            del Q
+            M3 = KZ * w[None, :]
+            M3 *= KdZ.T                                           # (Z S Z^T W)_ab (Zd S Z^T)_ba
+            Dmp = Dm * (w ** 2)[:, None]
+            T_nl = np.add.reduceat(Dmp.T @ M3, st, axis=1)      # tr(SX_n C_l), [noise, band]
+            SM = Dmp.T @ dKdZ                                     # same band: tr(S M)
+            del M3
+        del WKZW, KZ, KdZ
+        ZWb = [Z.T @ (w * it["beta"]) for it in info]
+        V = np.stack([it["v"] if it["kind"] == "lambda" else np.zeros(p) for it in info], axis=1)
+        SV = Sg @ V
+        H = np.zeros((n, n))
+        for i_, ti in enumerate(info):
+            for i2 in range(i_, n):
+                tj = info[i2]
+                same = i_ == i2
+                if ti["kind"] == "lambda" and tj["kind"] == "lambda":
+                    ki, kj = ti["k"], tj["k"]
+                    h = float(V[:, i_] @ SV[:, i2])
+                    if ki == kj:
+                        h -= ti["zwz"]
+                    h += -((ti["trG"] if ki == kj else 0.0) - S_BC[kj, ki])
+                    if same:
+                        h += ti["gu"] - ti["trC"]
+                    e1 = 2.0 * (ti["trG"] - ti["trGS"]) if ki == kj else 0.0
+                    e2_ = -(S_BC[kj, ki] - S_BF[kj, ki]) - (S_BC[ki, kj] - S_BF[ki, kj])
+                    h += 0.5 * (2.0 * S_CC[ki, kj] + e1 + e2_)
+                else:
+                    h = -(ti["beta"] @ (w * tj["beta"]) - ZWb[i_] @ Sg @ ZWb[i2])
+                    if ti["kind"] != "lambda" and tj["kind"] != "lambda":
+                        ci, cj = noise.index(i_), noise.index(i2)
+                        if same:
+                            r = rows_of[ti["k"]]
+                            h += 0.5 * np.sum(ti["d2"] * alpha[r] ** 2) - 0.5 * np.sum(Qdiag[r] * ti["d2"])
+                        h += 0.5 * term_a[ci, cj]
+                    else:
+                        tn, tl = (ti, tj) if ti["kind"] != "lambda" else (tj, ti)
+                        cn = noise.index(info.index(tn))
+                        h += -T_nl[cn, tl["k"]]
+                        if tn["k"] == tl["k"]:
+                            h += SM[cn]
+                H[i_, i2] = H[i2, i_] = h
+        return H, params
+
     # ------------------------------------------------------------ JAX
     def loglik_fn(self):
         """JAX function ``(a, b, s, j) -> log likelihood`` (float32), with the
@@ -539,6 +785,28 @@ class GramCache:
     def conditional_fn(self):
         self.loglik_fn()
         return self._jax_fns[1]
+
+
+def _cho_inverse(cf):
+    """``P^-1`` from ``cho_factor``'s lower factor by LAPACK's potri: about a
+    third fewer flops than solving against the identity (on Kaggle, factor
+    plus inverse 0.24 s -> 0.11 s at p = 1574)."""
+    from scipy.linalg.lapack import dpotri
+
+    Linv, info = dpotri(cf[0], lower=1)
+    if info != 0:
+        raise np.linalg.LinAlgError(f"dpotri failed (info {info})")
+    return _symmetrise(Linv, lower=True)
+
+
+def _symmetrise(A, lower):
+    """The symmetric matrix whose lower (or upper) triangle is A's: one
+    triangle copy and one in-place add (the profile found np.tril/np.triu copies
+    at 5-7% of a solve)."""
+    T = np.tril(A) if lower else np.triu(A)
+    T += T.T  # numpy buffers the overlapping transpose
+    T[np.diag_indices_from(T)] *= 0.5
+    return T
 
 
 def _cholesky(P):

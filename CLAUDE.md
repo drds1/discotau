@@ -1406,6 +1406,106 @@ match; `discotau.__version__` reads the installed metadata);
     the old name and need the library from before this change. Quick tests in `test_quick_settings.py`
     (T_1 against an independent cgs calculation, the inverse, the prior centre, the old-name error, the
     starts).
+37. **The marginal likelihood is evaluated in float64 on the host from precomputed Gram matrices
+    (`discotau/gram.py`, `GramCache`; October 2026, PR #38, a direct request: "the direct solves are too
+    slow"; full write-up `docs/fast_direct_solves.md`, scripts in `experiments/fast_solve/`, untracked).**
+    `M_b = Phi_b R_b`: the trig basis `Phi_b` never changes, only the per-mode 2x2 blocks `R_b` do, so
+    `P = I + sum_b R_b^T G_b R_b` costs `O(B p^2 + p^3)` with `G_b` built once.
+    - **Float64 through `jax.pure_callback` with an analytic `custom_vjp`**, never the process-wide
+      `jax_enable_x64` (the reason decision #21 rejected float64 still holds). In float64 the textbook
+      quadratic form `y^T D^-1 y - c^T P^-1 c` is safe; in float32 it cancels, which is why #21 used QR.
+    - **`HOST_METHOD = "auto"` chooses per light curve**: fixed noise sums precomputed Gram matrices; the
+      error model forms its weighted design rows and enters P through one BLAS-3 syrk (the Gram form with
+      the error model needs a ~10-term weight basis and was memory-bound). `model.MARGINAL_METHOD = "auto"`
+      keeps the QR below 1.2 data points per linear parameter.
+    - **Exact Hessian for the scalar parameters** (`GramCache.scalar_hessian`, `exact_hessian.py`): each
+      light curve's log scale (gain times `sigma_drw`), error scale and jitter. Other parameters keep
+      finite-difference columns. **One T1 + T2 pair cancels to ~1e-3 of its parts and is combined
+      analytically. Keep it that way if you touch the code.**
+    - The single-Gaussian solve reuses Hessians across Newton steps and between restarts that land
+      together. The nested solve scores draws in memory-bounded chunks (`DRAW_BATCH_BYTES`), which was
+      the cause of the 31 GB out-of-memory kills on 900-1150-mode problems.
+    - `fit(init_from_optimum=True, mass_from_optimum=True)` starts NUTS at the direct solve's optimum with
+      its covariance as the inverse mass matrix.
+    - Measured on Kaggle, answers unchanged (nested ln Z within ~0.2, posteriors within 0.01 dex): with
+      the error model, whole solves 2.1-2.8x faster (NGC 5548 cadence nested 6438 -> 2302 s, single
+      Gaussian 1731 -> 627 s); without it, 2.5-3x per gradient on long campaigns.
+    - **NUTS: the sampled model (~670 dimensions at 327 modes) does not mix, even warm-started** (ESS 7 in
+      7.8 h from defaults, 37-92 in 3.5 h warm). The marginalised model with the warm start and mass
+      matrix was best (0.233 vs 0.159 effective samples per second, no divergences). Recommend that for
+      NUTS; why the sampled model fails is not yet understood.
+    - Dropped: computing responses once per outer grid point in the nested inner loop (no gain, the host
+      likelihood dominates).
+    - Fixed in passing: `fit()` crashed with no `M_BH` (free lags only); the accretion-rate prior used
+      `float()` inside jit.
+
+38. **The driver frequency grid is automatic by default (`build_grid(log_step=None)`,
+    `discotau/frequency_grid.py`; October 2026, a direct request: "the minimum frequency resolution
+    required so that the simulations run quickly without compromising the accuracy"; full write-up
+    `docs/frequency_grid.md`, study in `experiments/frequency_grid/`, untracked).** Supersedes #35's
+    fixed 1 per cent step as the default; `log_step=0.01` still gives that grid.
+    - **Theory.** A campaign of length T resolves one Fourier pair per 2 pi / T. With rho(w) the
+      signal-to-noise per resolved pair summed over light curves, a mode standing for m > 1 pairs loses
+      `(1 - 1/m)(rho - ln(1 + rho)) + ...` per pair (`loss_density`). The fewest modes for a given loss
+      space them proportional to 1 / rho.
+    - **The rule.** rho is estimated from each light curve alone by an exact GP fit of a smoothed random
+      walk plus excess white noise (L-BFGS with the analytic gradient, seconds), times 3 (`grid_safety`).
+      16 harmonics of `period_max`, then spacing `(2 pi / T) kappa / rho`, never closer than
+      `2 pi / (T + tau_max)` nor sparser than 3 per cent; total expected loss 0.5; reaches at least
+      `f_max`, at most 4 `f_max`. Driver light curves and free-lag bands are estimated unsmoothed, as the
+      model treats them (`SMOOTH_ALL = False`): smoothing them halved an X-ray driver's grid at no cost
+      but left both free-lag campaigns unconverged (KL ~5).
+    - **The spacing floor matters as much as the estimate.** Spacing every low-frequency mode at
+      `2 pi / period_max` (as the fixed grid does) puts ~2.4 modes in each resolved pair: the rule's grids
+      at `2 pi / (T + tau_max)` were a median 61 per cent of the size, worst KL 0.40 -> 0.43. `2 pi / T`
+      went too far (KL up to 1.6).
+    - **Validated** on 19 simulated campaigns by exact KL against all harmonics to 4 c/d (no fitting):
+      every case <= 0.43 except a steep f^-3 driver at SNR 700 (1.02; it is why the factor is 3, not 2).
+      The fixed 1 per cent grid was unconverged on 9 (KL 4-214). Nested fits on 8: the automatic grid
+      within 0.17 sd and 1.6 in ln Z of a much finer grid's; the fixed grid off by 0.39-0.75 sd on five
+      (accretion rate always higher). **Cost: 2-9x longer fits on rich data** (e.g. NGC 5548 cadence 873
+      -> 3852 s, X-ray driver 422 -> 3842 s); smaller grids than before on sparse or noisy data.
+    - **`check_frequency_grid()`** runs after every solve (`_post_fit_checks`, which only warns on
+      failure): it traces the fitted model once (`frequency_grid.capture_blocks`, the trick of
+      `gridkl.capture`), computes the model's own rho, predicts the grid's loss and warns above 2
+      (`CHECK_LOSS`), storing a suggested grid in `ef.grid_check`. Its prediction ran 1-4x the exact KL;
+      at a threshold of 1 it warned falsely on a 3-day cadence. It cannot see high-frequency structure the
+      fitted model doesn't expect (real Fairall 9 and NGC 5548 data have some).
+    - Free-lag fits got big grids (1825-2494 modes against ~850-1100 needed) until the safety factor was
+      dropped to 1 for unsmoothed light curves (decision #39: 1551 and 1248, still converged). `build_grid()`
+      warns above 3000 modes.
+    - `resume()` restores the frequencies themselves, so nothing new needed persisting.
+
+39. **Round two of the speed work (October 2026, PR #39; profile, figures and scripts in
+    `experiments/fast_solve/`, untracked, write-up `docs/fast_direct_solves.md` "Round two").** Measured on
+    Kaggle, answers unchanged throughout (log evidence within 0.01).
+    - **Profile first.** With the host likelihood (decision #37) the JAX side is negligible (~0.05 s per
+      gradient, flat in the number of modes); a gradient grows about as K^2. On NGC 5548's cadence with the
+      error model a nested solve spent a third in the exact scalar Hessian and most of the rest in the dense
+      path's BLAS products.
+    - **Exact scalar Hessian in data space** (`GramCache._scalar_hessian_nspace`, chosen by cost and memory,
+      `SCALAR_HESSIAN_SPACE`, `NSPACE_MEMORY_BYTES`): the same terms as sums over blocks of a few N x N
+      matrices, ~2 N^2 p instead of ~(2B + n_noise) p^3. 40 s -> 4.4 s a call on NGC 5548's cadence; agrees
+      with the parameter-space form to ~1e-10. The T1 + T2 pair keeps its analytic form.
+    - **Complex form for fixed-noise Gram light curves** (`gram.py` module docstring): `E1`, `E2` per light
+      curve, single-pass einsums; assembly ~4.5x, gradient 1.5-2.6x in isolation. **Inverses by `potri`**,
+      symmetrising with one copy (the old `tril`/`triu` copies were 5-7% of a solve).
+    - **The automatic grid's safety factor is 1 for light curves estimated unsmoothed**
+      (`frequency_grid.UNSMOOTHED_SAFETY`): tripling a w^-2 rho pushed the harmonic region sqrt(3) out. X-ray
+      driver 1323 -> 738 modes, Fairall 9 free lags 2494 -> 1248, all still converged (KL <= 0.30).
+    - **Nested solve**: the start is the first mode as it stands, and a seed's L-BFGS stops inside a found
+      mode (`MERGE_SD`, `MERGE_POTENTIAL`). Small: the mode optimisations were ~15% of the search; the
+      108-point scout grid is most of it (NGC 5548: 1928 of 2912 s), the next lever.
+    - Whole nested solve, NGC 5548 cadence with the error model: 7456 -> ~4700-5000 s.
+    - **Measured dead ends**: per-gradient CPU work is now near this hardware's limits. The K x K passes are
+      memory-bound (numpy einsum, vectorised ufuncs, 4 threads and fused XLA float64 all ran within ~1.8x of
+      each other); XLA with gathers and autodiff was 25-40x slower; lattice Gram rebuilds for error-model
+      light curves only pay with few light curves; Kaggle's T4 GPUs have weak float64 (~1.7x typical). The
+      fixed-noise complex form did not show in whole-solve timings, which vary ~1.4x between Kaggle machines.
+    - Literature checked and not adopted (reasons in the docs): stochastic log-determinants (BBMM, Lanczos,
+      Hutch++), mixed-precision factorisations, NUFFT Gram builds, state-space likelihoods. Worth trying:
+      INLA's central composite design for the outer grid, Pathfinder.
+
 ## Known rough edges / things to check before trusting results on real data
 
 - `synthetic.py`'s ground truth is generated with the *same* forward model
@@ -1416,9 +1516,8 @@ match; `discotau.__version__` reads the installed metadata);
   DRW process. If you need exact DRW likelihoods, consider swapping in a
   Kalman-filter/celerite-style likelihood instead: that's a bigger change
   and would touch `model.py` more than `forward_model.py`.
-- The driver frequency grid is decision #29's (harmonics of
-  `2 (baseline + tau_max)`, then log spacing, to `f_max` = 2 cycles/day);
-  `n_tau` / `tau_max` are still simple heuristics (`tau_max` defaults to
+- The driver frequency grid is decision #38's automatic one (#29's
+  fixed grid via `log_step=`); `n_tau` / `tau_max` are still simple heuristics (`tau_max` defaults to
   half the time baseline). `grid_utils.estimate_dt_min` (a robust
   5th-percentile estimate of observation gaps, not the single tightest gap,
   which for irregular sampling blew up `w_max`; caught by
