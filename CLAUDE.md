@@ -1475,6 +1475,36 @@ match; `discotau.__version__` reads the installed metadata);
       3000 modes. The obvious follow-up is a better estimate for those light curves, not a smaller factor.
     - `resume()` restores the frequencies themselves, so nothing new needed persisting.
 
+39. **Round two of the speed work (October 2026, PR #39; profile, figures and scripts in
+    `experiments/fast_solve/`, untracked, write-up `docs/fast_direct_solves.md` "Round two").** Measured on
+    Kaggle, answers unchanged throughout (log evidence within 0.01).
+    - **Profile first.** With the host likelihood (decision #37) the JAX side is negligible (~0.05 s per
+      gradient, flat in the number of modes); a gradient grows about as K^2. On NGC 5548's cadence with the
+      error model a nested solve spent a third in the exact scalar Hessian and most of the rest in the dense
+      path's BLAS products.
+    - **Exact scalar Hessian in data space** (`GramCache._scalar_hessian_nspace`, chosen by cost and memory,
+      `SCALAR_HESSIAN_SPACE`, `NSPACE_MEMORY_BYTES`): the same terms as sums over blocks of a few N x N
+      matrices, ~2 N^2 p instead of ~(2B + n_noise) p^3. 40 s -> 4.4 s a call on NGC 5548's cadence; agrees
+      with the parameter-space form to ~1e-10. The T1 + T2 pair keeps its analytic form.
+    - **Complex form for fixed-noise Gram light curves** (`gram.py` module docstring): `E1`, `E2` per light
+      curve, single-pass einsums; assembly ~4.5x, gradient 1.5-2.6x in isolation. **Inverses by `potri`**,
+      symmetrising with one copy (the old `tril`/`triu` copies were 5-7% of a solve).
+    - **The automatic grid's safety factor is 1 for light curves estimated unsmoothed**
+      (`frequency_grid.UNSMOOTHED_SAFETY`): tripling a w^-2 rho pushed the harmonic region sqrt(3) out. X-ray
+      driver 1323 -> 738 modes, Fairall 9 free lags 2494 -> 1248, all still converged (KL <= 0.30).
+    - **Nested solve**: the start is the first mode as it stands, and a seed's L-BFGS stops inside a found
+      mode (`MERGE_SD`, `MERGE_POTENTIAL`). Small: the mode optimisations were ~15% of the search; the
+      108-point scout grid is most of it (NGC 5548: 1928 of 2912 s), the next lever.
+    - Whole nested solve, NGC 5548 cadence with the error model: 7456 -> ~4700-5000 s.
+    - **Measured dead ends**: per-gradient CPU work is now near this hardware's limits. The K x K passes are
+      memory-bound (numpy einsum, vectorised ufuncs, 4 threads and fused XLA float64 all ran within ~1.8x of
+      each other); XLA with gathers and autodiff was 25-40x slower; lattice Gram rebuilds for error-model
+      light curves only pay with few light curves; Kaggle's T4 GPUs have weak float64 (~1.7x typical). The
+      fixed-noise complex form did not show in whole-solve timings, which vary ~1.4x between Kaggle machines.
+    - Literature checked and not adopted (reasons in the docs): stochastic log-determinants (BBMM, Lanczos,
+      Hutch++), mixed-precision factorisations, NUFFT Gram builds, state-space likelihoods. Worth trying:
+      INLA's central composite design for the outer grid, Pathfinder.
+
 ## Known rough edges / things to check before trusting results on real data
 
 - `synthetic.py`'s ground truth is generated with the *same* forward model

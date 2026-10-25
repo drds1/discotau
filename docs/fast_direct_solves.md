@@ -108,7 +108,7 @@ weighted sum of fixed matrices and one Cholesky, with an analytic gradient, and 
 recomputed inside the inner loop. Today every inner gradient recomputes all responses, all transfer
 coefficients and the full QR.
 
-## What is in the library (branch `fast-direct-solves`)
+## What is in the library (PR #38)
 
 1. **Float64 marginal likelihood on the host** (`discotau/gram.py`, `GramCache`), through
    `jax.pure_callback` with an analytic `custom_vjp`. Each light curve enters P the faster way for it
@@ -147,6 +147,49 @@ NUTS (6 bands, 327 modes): the default sampled model (~670 dimensions) failed to
 sample size 7, stuck far from the truth); starting it at the optimum, with or without the solve's mass
 matrix, still mixed badly (ESS 37-92 in 3.5 h). The marginalised model with the warm start was best:
 1771 s against 5004 s with defaults, 0.233 against 0.159 effective samples per second, no divergences.
+
+## Round two (October 2026): profile-led
+
+A full profile of every solve on the default (automatic) grid, Kaggle, 4 CPUs (`experiments/fast_solve/`):
+
+- The JAX side (responses, transfer coefficients, priors) costs ~0.05 s per gradient and does not grow with
+  the number of modes. Everything that matters is numpy and LAPACK on the host, and a gradient grows about as
+  K^2.
+- On NGC 5548's cadence with the error model (19 light curves, 768 modes), a nested solve took 7456 s: a third
+  in the exact scalar Hessian (44 s a call), most of the rest in the dense path's BLAS products, 5-7% in
+  `np.tril`/`np.triu` copies.
+
+What changed, each exact (log evidence unchanged to 0.01):
+
+| change | effect |
+|---|---|
+| exact scalar Hessian in data space (sums over blocks of N x N matrices) | 40 s -> 4.4 s a call (NGC 5548, error model); 10 s -> 2.3 s (Fairall 9) |
+| complex form for fixed-noise light curves (`E1`, `E2`, single-pass einsums) | assembly ~4.5x, gradient 1.5-2.6x in isolation |
+| inverse by LAPACK `potri`; symmetrising with one copy | factorisation plus inverse ~2x |
+| nested solve: start reused as the first mode, seeds stopped once inside a found mode | 2-17% fewer gradients |
+| automatic grid: safety factor 1 for unsmoothed light curves | X-ray driver 1323 -> 738 modes, free lags up to 2x fewer |
+
+Whole nested solves: NGC 5548 cadence with the error model 7456 s -> ~4700-5000 s; Fairall 9 cadence
+1615 -> ~1300 s; 6 bands 414 -> ~330 s. Whole-solve timings vary ~1.4x between Kaggle machines.
+
+Measured and not pursued:
+
+- **The K x K passes are memory-bound.** numpy einsum, vectorised ufuncs (1 or 4 threads) and fused XLA
+  float64 on stored arrays ran within ~1.8x of each other (19 x 768: 0.11-0.26 s per assembly).
+- **XLA with gathers**: exact but 25-40x slower (the gather's gradient is a scatter).
+- **Error-model Gram matrices rebuilt per call on a lattice grid** (multiples of the lowest frequency; spectral
+  windows from a low-rank weight basis): exact, and cheap per rebuild (4-11 ms), but a gradient needs ~6 per
+  light curve: a ~2x gain with 6 light curves, none with 19.
+- **GPUs**: Kaggle's T4s have weak float64 (~1.7x per gradient typical, 6x for one many-mode case).
+
+The next lever is the nested solve's scout grid: on NGC 5548 it is 1928 s of a 2912 s search (108 points,
+~14 gradients each). INLA's central composite design (Rue, Martino & Chopin 2009) for the outer integration,
+and multi-path Pathfinder (Zhang, Carpenter, Gelman & Vehtari 2022) as an alternative, are the candidates
+from the literature. Not adopted: stochastic log-determinants (Lanczos quadrature, BBMM, Hutch++; the
+factorisation is only 20-30% of a gradient, P's condition number reaches ~1e7, and stochastic gradients would
+break the Newton steps), mixed-precision factorisations (refinement recovers solves, not the log determinant),
+non-uniform FFT Gram builds (the build is already negligible), state-space likelihoods (the disc convolution
+breaks the semiseparable structure).
 
 ## Tried and dropped
 
