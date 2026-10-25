@@ -1471,8 +1471,9 @@ match; `discotau.__version__` reads the installed metadata);
       (`CHECK_LOSS`), storing a suggested grid in `ef.grid_check`. Its prediction ran 1-4x the exact KL;
       at a threshold of 1 it warned falsely on a 3-day cadence. It cannot see high-frequency structure the
       fitted model doesn't expect (real Fairall 9 and NGC 5548 data have some).
-    - Free-lag fits get big grids (1825-2494 modes against ~850-1100 needed); `build_grid()` warns above
-      3000 modes. The obvious follow-up is a better estimate for those light curves, not a smaller factor.
+    - Free-lag fits got big grids (1825-2494 modes against ~850-1100 needed) until the safety factor was
+      dropped to 1 for unsmoothed light curves (decision #39: 1551 and 1248, still converged). `build_grid()`
+      warns above 3000 modes.
     - `resume()` restores the frequencies themselves, so nothing new needed persisting.
 
 39. **Round two of the speed work (October 2026, PR #39; profile, figures and scripts in

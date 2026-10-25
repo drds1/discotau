@@ -357,9 +357,9 @@ chooses how many and where from the data (`log_step=None`,
   (`ef.grid_check`). Real light curves can carry more high-frequency
   structure than the fitted model expects, which this check cannot see.
 - **Free-lag bands and driver light curves** are estimated as unsmoothed
-  random walks, as the model treats them. That is conservative: up to 2 to 4
-  times the modes the fitted model needed. `build_grid()` warns above 3000
-  modes.
+  random walks, as the model treats them, with a safety factor of 1 rather
+  than 3 (the estimate already has the model's own shape). `build_grid()`
+  warns above 3000 modes.
 
 $P_\text{max} = 2\,(T + \tau_\text{max})$, $T$ the baseline.
 $T + \tau_\text{max}$ is the window the driver must cover (the echo at the

@@ -115,10 +115,12 @@ for the automatic grid (`build_grid()`'s default, as shipped) and the fixed 1 pe
 
 The steep spectrum at SNR 700 is the one case near the limit: the estimate assumes a smoothed random
 walk, and a steeper spectrum has more high-frequency signal than that at high signal-to-noise. It is why
-the safety factor is 3 rather than 2 (KL 1.67 at 2). The free-lag grids are 2 to 2.5 times larger than the
-fitted model needed (849 and 1095 modes), because those light curves are estimated as unsmoothed.
-Estimating them with smoothing too halved the X-ray case's grid at no cost but left both free-lag cases
-unconverged (KL about 5), so it is off.
+the safety factor is 3 rather than 2 (KL 1.67 at 2). Driver light curves and free-lag bands are estimated with the model's own unsmoothed shape, so the
+safety factor that guards against a wrong shape is 1 for them (`UNSMOOTHED_SAFETY`): with 3 they got 2 to
+2.5 times the modes the fitted model needed, because tripling a w^-2 signal-to-noise pushes the harmonic
+region sqrt(3) further out. At 1: X-ray driver 738 modes (was 1323, KL 0.04), free lags 1551 and 1248 (were
+1825 and 2494; KL 0.19 and 0.30). Estimating them with smoothing instead left both free-lag cases unconverged
+(KL about 5), so it is off. The table above was made with the factor at 3.
 
 The post-fit check's prediction on these grids was 0.01 to 0.42 for the automatic grid apart from the
 3-day cadence (1.45, KL 0.43) and the steep SNR-700 case (4.1, KL 1.02), and 1.9 to 361 on every
